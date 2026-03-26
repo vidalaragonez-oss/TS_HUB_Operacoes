@@ -268,16 +268,28 @@ function parseCSV(rows: Record<string,string>[], fileName: string): Lead[] {
 
 function parseDateForSort(dateStr: string): number {
   if (!dateStr) return 0;
+  // Handle DD/MM/YYYY
   const dmY = dateStr.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
   if (dmY) return new Date(`${dmY[3]}-${dmY[2]}-${dmY[1]}`).getTime();
+  // Handle ISO YYYY-MM-DD
+  const iso = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return new Date(dateStr).getTime();
+  
   const d = new Date(dateStr);
   return isNaN(d.getTime()) ? 0 : d.getTime();
 }
 
 function parseDMY(str: string): Date | null {
+  if (!str) return null;
   const m = str.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
-  if (!m) return null;
-  return new Date(`${m[3]}-${m[2]}-${m[1]}`);
+  if (m) return new Date(`${m[3]}-${m[2]}-${m[1]}`);
+  
+  const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) {
+    const d = new Date(str);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
 }
 
 function clienteStatus(c: Cliente) {
@@ -1486,9 +1498,16 @@ export default function Home() {
   const [showScrollTop, setShowScrollTop] = useState(false);
 
   useEffect(() => {
+    // Escuta erros globais para sabermos exatamente o que quebrou em produção
+    const handleError = (e: ErrorEvent) => toast.error(`Render Error: ${e.message}`);
+    window.addEventListener("error", handleError);
+    
     const handleScroll = () => setShowScrollTop(window.scrollY > 300);
     window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("error", handleError);
+    };
   }, []);
 
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1877,7 +1896,7 @@ export default function Home() {
   });
 
 const backToDashboard = () => {
-    setClienteAtivo(null); setActiveLeads([]); setLeadSearch(""); setPlatFilter("");
+    setClienteAtivo(null); setLeadSearch(""); setPlatFilter("");
     setDateFrom(""); setDateTo(""); setPeriodPreset("max");
     setTimeout(() => {
       window.scrollTo({ top: scrollPosRef.current, behavior: "instant" });
@@ -2360,9 +2379,9 @@ const backToDashboard = () => {
                 )}
                 {(dateFrom||dateTo)&&(
                   <p className="text-[10px] text-amber-500/70 font-medium">
-                    {dateFrom&&dateTo
-                      ? `${dateFrom.split("-").reverse().join("/")} → ${dateTo.split("-").reverse().join("/")}`
-                      : dateFrom ? `A partir de ${dateFrom.split("-").reverse().join("/")}` : `Até ${dateTo!.split("-").reverse().join("/")}`}
+                    {dateFrom && dateTo
+                      ? `${(dateFrom || "").split("-").reverse().join("/")} → ${(dateTo || "").split("-").reverse().join("/")}`
+                      : dateFrom ? `A partir de ${(dateFrom || "").split("-").reverse().join("/")}` : (dateTo ? `Até ${(dateTo || "").split("-").reverse().join("/")}` : "")}
                   </p>
                 )}
               </div>
@@ -2392,7 +2411,7 @@ const backToDashboard = () => {
               />
             )}
 
-            {!leadsLoading&&totalLeads===0&&(
+            {!leadsLoading && totalLeadsCount === 0 && (
               <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 flex items-start gap-3">
                 <span className="text-xl shrink-0 mt-0.5 text-amber-500"><Sparkles size={20} /></span>
                 <div>
