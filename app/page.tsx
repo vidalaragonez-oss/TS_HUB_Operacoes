@@ -69,8 +69,8 @@ type PeriodPreset = "7d" | "15d" | "30d" | "90d" | "custom" | "max";
 type ViewMode    = "grid" | "list";
 type SortMode   = "alfabetica" | "personalizada";
 
-// ─── Paginação ────────────────────────────────────────────────────────────────
-const LEADS_PER_PAGE = 20;
+// ─── Opções de Paginação ──────────────────────────────────────────────────────
+const ITEMS_PER_PAGE_OPTIONS = [10, 20, 50, 100] as const;
 // ─── Platform definitions ─────────────────────────────────────────────────────
 
 const PLATFORM_SVG: Record<PlatformKey, React.ReactNode> = {
@@ -505,7 +505,9 @@ function Dropzone({ onParsed }: { onParsed: (leads: Lead[]) => void }) {
       let text = decoder.decode(buffer);
       if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
       Papa.parse<Record<string,string>>(text, {
-        header:true, skipEmptyLines:true,
+        header:true,
+        skipEmptyLines:true,
+        delimiter: "", // String vazia = auto-detecção de delimitador (vírgula, tab, pipe, etc)
         complete: result => {
           const parsed = parseCSV(result.data, file.name);
           setLoading(false);
@@ -607,12 +609,14 @@ function LeadMobileCard({ lead, selected, onToggle }: { lead: Lead; selected: bo
 // LEAD ACCORDION
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function LeadAccordion({ leads, search, platFilter, dateFrom, dateTo, onDeleteSelected, currentPage, onPageChange, totalLeads }: {
+function LeadAccordion({ leads, search, platFilter, dateFrom, dateTo, onDeleteSelected, currentPage, onPageChange, totalLeads, itemsPerPage, onItemsPerPageChange }: {
   leads:Lead[]; search:string; platFilter:string; dateFrom:string; dateTo:string;
   onDeleteSelected:(ids:string[])=>void;
   currentPage: number;
   onPageChange: (page: number) => void;
   totalLeads: number;
+  itemsPerPage: number;
+  onItemsPerPageChange: (items: number) => void;
 }) {
   const [openPlats, setOpenPlats] = useState<Set<string>>(new Set());
   const [selected, setSelected]   = useState<Set<string>>(new Set());
@@ -642,7 +646,7 @@ function LeadAccordion({ leads, search, platFilter, dateFrom, dateTo, onDeleteSe
     return matchText && matchPlat && matchDate;
   });
 
-  const totalPages = Math.ceil(totalLeads / LEADS_PER_PAGE);
+  const totalPages = Math.ceil(totalLeads / itemsPerPage);
 
   const grouped = filtered.reduce<Record<string,Lead[]>>((acc,l) => {
     const k = l.plataforma||"Sem Plataforma";
@@ -775,12 +779,30 @@ function LeadAccordion({ leads, search, platFilter, dateFrom, dateTo, onDeleteSe
 
       {totalPages > 1 && (
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-[#2e2c29]">
-          <p className="text-xs text-[#7a7268] order-2 sm:order-1">
-            Página <span className="text-[#e8e2d8] font-semibold">{currentPage}</span> de{" "}
-            <span className="text-[#e8e2d8] font-semibold">{totalPages}</span>
-            {" "}·{" "}
-            <span className="text-[#e8e2d8] font-semibold">{totalLeads}</span> leads no total
-          </p>
+          <div className="flex items-center gap-3 order-2 sm:order-1">
+            <p className="text-xs text-[#7a7268]">
+              Página <span className="text-[#e8e2d8] font-semibold">{currentPage}</span> de{" "}
+              <span className="text-[#e8e2d8] font-semibold">{totalPages}</span>
+              {" "}·{" "}
+              <span className="text-[#e8e2d8] font-semibold">{totalLeads}</span> leads no total
+            </p>
+            {/* Dropdown de itens por página */}
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-[#7a7268] font-semibold uppercase tracking-widest whitespace-nowrap">Por página:</span>
+              <div className="relative">
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => onItemsPerPageChange(Number(e.target.value))}
+                  className="appearance-none bg-[#201f1d] border border-[#2e2c29] rounded-lg px-3 pr-7 py-1.5 text-xs text-[#e8e2d8] outline-none focus:border-amber-500/60 transition-colors cursor-pointer hover:border-[#7a7268]"
+                >
+                  {ITEMS_PER_PAGE_OPTIONS.map(option => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#7a7268]" size={12} />
+              </div>
+            </div>
+          </div>
           <div className="flex items-center gap-2 order-1 sm:order-2">
             <button
               onClick={() => onPageChange(currentPage - 1)}
@@ -1403,11 +1425,14 @@ export default function Home() {
   const [totalLeads, setTotalLeads]     = useState(0);
   const [currentPage, setCurrentPage]   = useState(1);
   const [newLeadOpen, setNewLeadOpen]   = useState(false);
+  // Dashboard: dataset completo (sem paginação) para cálculos de métricas
+  const [allLeadsForDashboard, setAllLeadsForDashboard] = useState<Lead[]>([]);
   const [leadSearch, setLeadSearch]     = useState("");
   const [platFilter, setPlatFilter]     = useState("");
   const [dateFrom, setDateFrom]         = useState("");
   const [dateTo, setDateTo]             = useState("");
   const [periodPreset, setPeriodPreset] = useState<PeriodPreset>("max");
+  const [itemsPerPage, setItemsPerPage] = useState(10); // Padrão: 10 itens por página
 
   const [clientSearch, setClientSearch] = useState("");
   const [gestorFilter, setGestorFilter] = useState("");
@@ -1537,8 +1562,8 @@ export default function Home() {
   const fetchLeads = useCallback(async (clienteId: string, page = 1) => {
     setLeadsLoading(true);
     try {
-      const from = (page - 1) * LEADS_PER_PAGE;
-      const to   = from + LEADS_PER_PAGE - 1;
+      const from = (page - 1) * itemsPerPage;
+      const to   = from + itemsPerPage - 1;
       const { count, error: countError } = await supabase
         .from("leads").select("id", { count: "exact", head: true }).eq("cliente", clienteId);
       if (countError) throw countError;
@@ -1555,6 +1580,22 @@ export default function Home() {
     } finally {
       setLeadsLoading(false);
     }
+  }, [itemsPerPage]);
+
+  // Busca TODOS os leads (sem paginação) para cálculos do Dashboard
+  const fetchDashboardMetrics = useCallback(async (clienteId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("leads")
+        .select("*")
+        .eq("cliente", clienteId)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      setAllLeadsForDashboard((data as Lead[]) ?? []);
+    } catch (err: unknown) {
+      console.error("Erro ao buscar métricas do dashboard:", err);
+      setAllLeadsForDashboard([]);
+    }
   }, []);
 
   const handlePageChange = useCallback((page: number) => {
@@ -1563,13 +1604,22 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [clienteAtivo, fetchLeads]);
 
+  const handleItemsPerPageChange = useCallback((newItemsPerPage: number) => {
+    if (!clienteAtivo) return;
+    setItemsPerPage(newItemsPerPage);
+    // Reset para página 1 ao mudar quantidade de itens
+    fetchLeads(clienteAtivo.id, 1);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [clienteAtivo, fetchLeads]);
+
   const handleSelectCliente = useCallback((cliente: Cliente) => {
     scrollPosRef.current = window.scrollY; // Salva a posição
     setClienteAtivo(cliente); setLeadSearch(""); setPlatFilter("");
     setDateFrom(""); setDateTo(""); setPeriodPreset("max"); setCurrentPage(1);
     fetchLeads(cliente.id, 1);
+    fetchDashboardMetrics(cliente.id); // Busca TODOS os leads para o dashboard
     window.scrollTo({ top: 0, behavior: "smooth" }); // Sobe suavemente
-  }, [fetchLeads]);
+  }, [fetchLeads, fetchDashboardMetrics]);
 
   const handleLeadsParsed = useCallback(async (parsedLeads: Lead[]) => {
     if (!clienteAtivo||!operacaoAtiva) return;
@@ -1583,10 +1633,11 @@ export default function Home() {
       if (error) throw error;
       toast.success(`${rows.length} leads salvos no banco!`);
       fetchLeads(clienteAtivo.id, 1);
+      fetchDashboardMetrics(clienteAtivo.id); // Atualiza métricas do dashboard
     } catch (err: unknown) {
       toast.error(`Erro ao salvar leads: ${err instanceof Error ? err.message : "Erro desconhecido"}`);
     }
-  }, [clienteAtivo, operacaoAtiva, fetchLeads]);
+  }, [clienteAtivo, operacaoAtiva, fetchLeads, fetchDashboardMetrics]);
 
   const handleDeleteLeads = useCallback(async (ids: string[]) => {
     try {
@@ -1594,6 +1645,7 @@ export default function Home() {
       if (error) throw error;
       toast.success(`${ids.length} lead(s) excluído(s).`);
       setActiveLeads(prev => prev.filter(l=>!ids.includes(l.id)));
+      setAllLeadsForDashboard(prev => prev.filter(l=>!ids.includes(l.id))); // Atualiza dashboard
       setTotalLeads(prev => Math.max(0, prev - ids.length));
     } catch (err: unknown) {
       toast.error(`Erro ao excluir leads: ${err instanceof Error ? err.message : "Erro desconhecido"}`);
@@ -1613,6 +1665,7 @@ export default function Home() {
       if (error) throw error;
       toast.success("Lead adicionado com sucesso!"); setNewLeadOpen(false);
       setActiveLeads(prev => [data as Lead,...prev]);
+      setAllLeadsForDashboard(prev => [data as Lead,...prev]); // Atualiza dashboard
       setTotalLeads(prev => prev + 1);
     } catch (err: unknown) {
       toast.error(`Erro ao salvar lead: ${err instanceof Error ? err.message : "Erro desconhecido"}`);
@@ -1727,12 +1780,32 @@ export default function Home() {
     } catch (err: unknown) { toast.error(`Erro: ${(err as Error).message}`); }
   };
 
+  // Filtro para a TABELA (usa activeLeads paginado)
   const filteredLeads = (() => {
     const dtFrom = dateFrom ? new Date(dateFrom) : null;
     const dtTo   = dateTo   ? new Date(dateTo)   : null;
     if (dtTo) dtTo.setHours(23,59,59,999);
     const s = leadSearch.toLowerCase();
     return activeLeads.filter(l => {
+      const matchText = !s||l.nome.toLowerCase().includes(s)||l.telefone.includes(s)||(l.email||"").toLowerCase().includes(s);
+      const matchPlat = !platFilter||(l.plataforma||"").toLowerCase().includes(platFilter.toLowerCase());
+      let matchDate = true;
+      if (dtFrom||dtTo) {
+        const leadDate = parseDMY(l.data??"");
+        if (!leadDate) matchDate=false;
+        else { if (dtFrom&&leadDate<dtFrom) matchDate=false; if (dtTo&&leadDate>dtTo) matchDate=false; }
+      }
+      return matchText && matchPlat && matchDate;
+    });
+  })();
+
+  // Filtro para o DASHBOARD (usa allLeadsForDashboard completo)
+  const filteredDashboardLeads = (() => {
+    const dtFrom = dateFrom ? new Date(dateFrom) : null;
+    const dtTo   = dateTo   ? new Date(dateTo)   : null;
+    if (dtTo) dtTo.setHours(23,59,59,999);
+    const s = leadSearch.toLowerCase();
+    return allLeadsForDashboard.filter(l => {
       const matchText = !s||l.nome.toLowerCase().includes(s)||l.telefone.includes(s)||(l.email||"").toLowerCase().includes(s);
       const matchPlat = !platFilter||(l.plataforma||"").toLowerCase().includes(platFilter.toLowerCase());
       let matchDate = true;
@@ -2297,7 +2370,7 @@ const backToDashboard = () => {
               </div>
             </div>
 
-            {!leadsLoading&&<ClienteDashboard leads={filteredLeads}/>}
+            {!leadsLoading&&<ClienteDashboard leads={filteredDashboardLeads}/>}
 
             {leadsLoading ? (
               <div className="flex flex-col items-center justify-center py-14 gap-3 rounded-xl border border-[#2e2c29] bg-[#1a1917]">
@@ -2315,6 +2388,8 @@ const backToDashboard = () => {
                 currentPage={currentPage}
                 onPageChange={handlePageChange}
                 totalLeads={totalLeads}
+                itemsPerPage={itemsPerPage}
+                onItemsPerPageChange={handleItemsPerPageChange}
               />
             )}
 
