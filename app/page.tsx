@@ -70,7 +70,7 @@ type ViewMode    = "grid" | "list";
 type SortMode   = "alfabetica" | "personalizada";
 
 // ─── Paginação ────────────────────────────────────────────────────────────────
-const LEADS_PER_PAGE = 20;
+const LEADS_PER_PAGE = 50;
 // ─── Platform definitions ─────────────────────────────────────────────────────
 
 const PLATFORM_SVG: Record<PlatformKey, React.ReactNode> = {
