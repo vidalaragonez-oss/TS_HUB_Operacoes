@@ -187,15 +187,15 @@ function detectSource(fileName: string, headers: string[]): "gls"|"meta"|"elemen
 }
 
 const KEYWORD_MAP: Record<string, string[]> = {
-  // Palavras totalmente limpas, sem underline (_) ou espaços
-  nome:      ['fullname', 'nome', 'name', 'customer', 'customername', 'cliente', 'firstname', 'lastname'],
+  // Adicionado 'personalinformation' para o Elementor
+  nome:      ['fullname', 'nome', 'name', 'customer', 'customername', 'cliente', 'firstname', 'lastname', 'personalinformation'],
   email:     ['email', 'emailaddress', 'address'],
   telefone:  ['phonenumber', 'phone', 'telefone', 'celular', 'whatsapp', 'customerphone'],
   data:      ['createdtime', 'date', 'data', 'leadreceived', 'submissiondate', 'createdat', 'datacriacao'],
   plataforma:['platform', 'plataforma', 'source', 'origem', 'formname'],
 };
 
-const NOISE_KEYWORDS = ['whatcanwedo', 'question', 'pergunta', 'howdidyou', 'message', 'searchintent', 'location', 'chargestatus', 'lastactivity', 'jobtype', 'leadtype'];
+const NOISE_KEYWORDS = ['whatcanwedo', 'question', 'pergunta', 'howdidyou', 'message', 'searchintent', 'location', 'chargestatus', 'lastactivity', 'jobtype', 'leadtype', 'anyotherinformation'];
 
 const GLS_NOISE_NAMES = new Set([
   'deepclean','standardclean','moveoutclean','moveinclean','recurringclean','onetimeclean',
@@ -213,7 +213,6 @@ function parseGeneric(rows: Record<string,string>[], platformOverride?: string, 
   const fieldMapping: Record<string, keyof Lead> = {};
 
   for (const h of headers) {
-    // Força a limpeza agressiva antes de buscar
     const normalized = h.toLowerCase().replace(/[^a-z0-9]/g, '');
     if (NOISE_KEYWORDS.some(kw => normalized.includes(kw))) continue;
     for (const [field, keywords] of Object.entries(KEYWORD_MAP)) {
@@ -234,6 +233,7 @@ function parseGeneric(rows: Record<string,string>[], platformOverride?: string, 
       plataforma: platformOverride || "Upload CSV",
     };
 
+    // 1. Preenche com o que achou pelos nomes das colunas
     for (const [header, field] of Object.entries(fieldMapping)) {
       const value = (r[header] ?? "").trim();
       if (!value) continue;
@@ -258,15 +258,29 @@ function parseGeneric(rows: Record<string,string>[], platformOverride?: string, 
       }
     }
 
+    // 2. VISÃO DE RAIO-X: Busca Email e Telefone perdidos em colunas "Unnamed"
+    for (const header of headers) {
+      if (!fieldMapping[header]) {
+        const val = (r[header] ?? "").trim();
+        if (!val) continue;
+
+        // Se parece um email válido e ainda não temos email
+        if (!lead.email && val.includes('@') && val.includes('.') && !val.includes(' ')) {
+          lead.email = val;
+        } 
+        // Se parece um telefone (números, +, () e traços) e ainda não temos telefone
+        else if (!lead.telefone && /^[\+\(\)0-9\-\.\s]{9,20}$/.test(val) && !/[a-zA-Z]/.test(val)) {
+          lead.telefone = val;
+        }
+      }
+    }
+
     // Tratamento específico para o caos do GLS
     if (sourceType === "gls") {
-      // O Google joga o telefone no lugar do nome. Se o "nome" for só números, move pro telefone!
       if (lead.nome && /^[\+\(\)0-9\-\.\s]{10,}$/.test(lead.nome)) {
         lead.telefone = lead.nome;
         lead.nome = "Lead não identificado";
       }
-      
-      // Limpa lixo como "Deep clean" que pode ter sobrado
       if (!lead.nome || isGlsNoiseName(lead.nome)) {
         lead.nome = "Lead não identificado";
       }
