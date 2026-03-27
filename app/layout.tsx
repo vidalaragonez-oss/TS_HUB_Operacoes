@@ -6,7 +6,7 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "TS Controler — Painel do Gestor",
+  title: "TS HUB — Painel de Gestão",
   description: "Sistema interno de gestão de leads por operação.",
 };
 
