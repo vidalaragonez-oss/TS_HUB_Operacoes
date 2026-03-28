@@ -17,7 +17,11 @@ import {
   Settings, 
   Check, 
   Circle,
-  Activity
+  Activity,
+  Bug,
+  Bell,
+  ImageIcon,
+  CheckCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
