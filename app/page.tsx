@@ -2286,10 +2286,10 @@ const backToDashboard = () => {
               </div>
 
               {/* -- Linha de controles: Ordenação + View toggle (lado a lado no mobile) -- */}
-              <div className="flex items-center gap-2 w-full sm:w-auto justify-center">
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-start">
                 <button
                   onClick={()=>setSortMode(m=>m==="alfabetica"?"personalizada":"alfabetica")}
-                  className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border text-xs font-semibold transition-all flex-1 sm:flex-none ${
+                  className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border text-xs font-semibold transition-all ${
                     sortMode==="personalizada"
                       ?"bg-amber-500/10 border-amber-500/40 text-amber-400 hover:bg-amber-500/20"
                       :"bg-[#201f1d] border-[#2e2c29] text-[#7a7268] hover:text-[#e8e2d8] hover:border-[#7a7268]"
