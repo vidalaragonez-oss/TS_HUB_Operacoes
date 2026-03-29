@@ -1074,8 +1074,72 @@ function ClientActionMenu({ onEdit, onDeactivate, onDelete, isInactive }: {
 // CLIENT CARD
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function ClientCard({ client, onSelect, onEdit, onDeactivate, onDelete, onToggleAlerta, isDragging }: {
-  client:Cliente; onSelect:()=>void; onEdit:()=>void; onDeactivate:()=>void; onDelete:()=>void; onToggleAlerta:()=>void; isDragging?:boolean;
+// ─── Meta status dot ─────────────────────────────────────────────────────────
+type MetaInsightData = {
+  account_status: number;
+  spend: number;
+  total_leads: number;
+  cpl: number;
+  loading: boolean;
+  error?: string;
+} | null;
+
+function MetaDot({ accountId, data, onRefresh }: {
+  accountId?: string | null;
+  data: MetaInsightData;
+  onRefresh: () => void;
+}) {
+  if (!accountId) {
+    return (
+      <span title="Sem conta Meta vinculada"
+        className="w-2 h-2 rounded-full bg-[#3a3835] shrink-0 inline-block" />
+    );
+  }
+  if (!data || data.loading) {
+    return (
+      <span title="Carregando dados Meta..."
+        className="w-2 h-2 rounded-full bg-[#3a3835] shrink-0 inline-block animate-pulse" />
+    );
+  }
+  if (data.error) {
+    return (
+      <button onClick={e=>{e.stopPropagation();onRefresh();}}
+        title={`Erro: ${data.error} — clique para tentar novamente`}
+        className="w-2 h-2 rounded-full bg-amber-500 shrink-0 inline-block hover:scale-125 transition-transform" />
+    );
+  }
+  const isActive = data.account_status === 1;
+  return (
+    <button onClick={e=>{e.stopPropagation();onRefresh();}}
+      title={isActive ? "Meta Ads ativo — clique para atualizar" : "Meta Ads com problema — clique para atualizar"}
+      className={`w-2 h-2 rounded-full shrink-0 inline-block hover:scale-125 transition-transform ${isActive ? "bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.7)]" : "bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.7)]"}`} />
+  );
+}
+
+function MetaSummary({ data }: { data: MetaInsightData }) {
+  if (!data || data.loading || data.error || !data.account_status) return null;
+  const fmt = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return (
+    <div className="flex items-center gap-2 flex-wrap mt-1">
+      <span className="text-[9px] font-semibold text-[#4a4844]">
+        Gasto: <span className="text-[#7a7268]">R$ {fmt(data.spend)}</span>
+      </span>
+      <span className="text-[#2e2c29]">·</span>
+      <span className="text-[9px] font-semibold text-[#4a4844]">
+        Leads: <span className="text-[#7a7268]">{data.total_leads}</span>
+      </span>
+      <span className="text-[#2e2c29]">·</span>
+      <span className="text-[9px] font-semibold text-[#4a4844]">
+        CPL: <span className="text-[#7a7268]">R$ {fmt(data.cpl)}</span>
+      </span>
+    </div>
+  );
+}
+
+// ─── Client Card ──────────────────────────────────────────────────────────────
+function ClientCard({ client, onSelect, onEdit, onDeactivate, onDelete, onToggleAlerta, metaData, onRefreshMeta, isDragging }: {
+  client:Cliente; onSelect:()=>void; onEdit:()=>void; onDeactivate:()=>void; onDelete:()=>void;
+  onToggleAlerta:()=>void; metaData: MetaInsightData; onRefreshMeta:()=>void; isDragging?:boolean;
 }) {
   const st=clienteStatus(client);
   const gestorColor=client.gestor_estrategico==="Duda"?"bg-blue-600/20 text-blue-400 border-blue-500/30":
@@ -1091,17 +1155,19 @@ function ClientCard({ client, onSelect, onEdit, onDeactivate, onDelete, onToggle
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
+            <MetaDot accountId={client.meta_ad_account_id} data={metaData} onRefresh={onRefreshMeta} />
             <button
               onClick={e=>{e.stopPropagation();onToggleAlerta();}}
               title={temAlerta ? "Remover alerta de pagamento" : "Marcar alerta de pagamento"}
               className="shrink-0 transition-colors hover:scale-110">
               <CreditCard size={14} className={temAlerta ? "text-red-500" : "text-[#3a3835]"} />
             </button>
-            <p className="font-bold text-[#e8e2d8] text-sm leading-tight">{client.nome}</p>
+            <p className="font-bold text-[#e8e2d8] text-sm leading-tight truncate">{client.nome}</p>
           </div>
           <span className={`inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border ${st.badge}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`}/>{st.label}
           </span>
+          <MetaSummary data={metaData} />
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <ClientActionMenu onEdit={onEdit} onDeactivate={onDeactivate} onDelete={onDelete} isInactive={isInactive}/>
@@ -1129,8 +1195,9 @@ function ClientCard({ client, onSelect, onEdit, onDeactivate, onDelete, onToggle
   );
 }
 
-function ClientRow({ client, onSelect, onEdit, onDeactivate, onDelete, onToggleAlerta, dragHandleProps, dragRef, draggableProps, isDragging, showDragHandle }: {
-  client:Cliente; onSelect:()=>void; onEdit:()=>void; onDeactivate:()=>void; onDelete:()=>void; onToggleAlerta:()=>void;
+function ClientRow({ client, onSelect, onEdit, onDeactivate, onDelete, onToggleAlerta, metaData, onRefreshMeta, dragHandleProps, dragRef, draggableProps, isDragging, showDragHandle }: {
+  client:Cliente; onSelect:()=>void; onEdit:()=>void; onDeactivate:()=>void; onDelete:()=>void;
+  onToggleAlerta:()=>void; metaData: MetaInsightData; onRefreshMeta:()=>void;
   dragHandleProps?: Record<string, unknown> | null;
   dragRef?: (el: HTMLElement | null) => void;
   draggableProps?: Record<string, unknown>;
@@ -1162,10 +1229,14 @@ function ClientRow({ client, onSelect, onEdit, onDeactivate, onDelete, onToggleA
       )}
       <td className="px-4 py-3">
         <div className="flex items-center gap-2">
+          <MetaDot accountId={client.meta_ad_account_id} data={metaData} onRefresh={onRefreshMeta} />
           <button onClick={e=>{e.stopPropagation();onToggleAlerta();}} title={temAlerta?"Remover alerta":"Marcar alerta de pagamento"} className="shrink-0 hover:scale-110 transition-transform">
             <CreditCard size={13} className={temAlerta ? "text-red-500" : "text-[#3a3835]"} />
           </button>
-          <p className="font-semibold text-[#e8e2d8] text-sm truncate max-w-[180px]">{client.nome}</p>
+          <div className="min-w-0">
+            <p className="font-semibold text-[#e8e2d8] text-sm truncate max-w-[160px]">{client.nome}</p>
+            <MetaSummary data={metaData} />
+          </div>
         </div>
       </td>
       <td className="px-4 py-3">
@@ -1599,6 +1670,9 @@ function normalizeCliente(raw: Record<string, unknown>): Cliente {
     platforms: Array.isArray(raw.platforms) ? (raw.platforms as Platform[]) : [],
     tipo_campanha: tcArray,
     alerta_pagamento: raw.alerta_pagamento === true,
+    meta_ad_account_id: (raw.meta_ad_account_id as string) ?? null,
+    meta_access_token:  (raw.meta_access_token  as string) ?? null,
+    meta_status:        (raw.meta_status         as string) ?? "sem_link",
   } as Cliente;
 }
 
@@ -1641,6 +1715,14 @@ export default function Home() {
   const [gestorFilter, setGestorFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("todos");
   const [pendenciasFilter, setPendenciasFilter] = useState(false);
+  const [metaInsights, setMetaInsights] = useState<Record<string, {
+    account_status: number;
+    spend: number;
+    total_leads: number;
+    cpl: number;
+    loading: boolean;
+    error?: string;
+  }>>({});
   const [viewMode, setViewMode]         = useState<ViewMode>("grid");
   const [sortMode, setSortMode]         = useState<SortMode>("personalizada");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -1754,18 +1836,25 @@ export default function Home() {
     try {
       const { data, error } = await supabase
         .from("clientes")
-        .select("id, nome, operacao_id, gestor, gestor_estrategico, platforms, status, created_at, ordem, tipo_campanha")
+        .select("id, nome, operacao_id, gestor, gestor_estrategico, platforms, status, created_at, ordem, tipo_campanha, alerta_pagamento, meta_ad_account_id, meta_access_token, meta_status")
         .eq("operacao_id",operacaoId)
         .order("ordem",{ascending:true,nullsFirst:false})
         .order("created_at",{ascending:true});
       if (error) throw error;
       const rows = ((data as Record<string, unknown>[]) ?? []).map(normalizeCliente);
       setClientes(rows);
+      // Dispara fetch Meta Ads para todos os clientes com conta vinculada
+      rows.forEach(c => {
+        if (c.meta_ad_account_id) {
+          fetchMetaInsights(c.id, c.meta_ad_account_id, c.meta_access_token ?? null);
+        }
+      });
     } catch (err: unknown) {
       toast.error(`Erro ao carregar clientes: ${err instanceof Error ? err.message : "Erro desconhecido"}`);
     } finally {
       setClientesLoading(false);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleSelectOperacao = (op: Operacao) => {
@@ -1909,6 +1998,41 @@ export default function Home() {
       );
     } catch (err: unknown) {
       toast.error(`Erro: ${err instanceof Error ? err.message : "Erro desconhecido"}`);
+    }
+  };
+
+  // ── Busca insights Meta Ads por cliente ───────────────────────────────────
+  const fetchMetaInsights = async (
+    clienteId: string,
+    accountId: string,
+    token: string | null,
+    since?: string,
+    until?: string,
+  ) => {
+    setMetaInsights(prev => ({ ...prev, [clienteId]: { ...prev[clienteId], loading: true, account_status: 0, spend: 0, total_leads: 0, cpl: 0 } }));
+    try {
+      const params = new URLSearchParams({ action: "insights", account_id: accountId });
+      if (token) params.set("token", token);
+      if (since) params.set("since", since);
+      if (until) params.set("until", until);
+      const res  = await fetch(`/api/meta?${params}`);
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      setMetaInsights(prev => ({
+        ...prev,
+        [clienteId]: {
+          account_status: json.account_status,
+          spend:          json.spend,
+          total_leads:    json.total_leads,
+          cpl:            json.cpl,
+          loading:        false,
+        },
+      }));
+    } catch (err: unknown) {
+      setMetaInsights(prev => ({
+        ...prev,
+        [clienteId]: { account_status: -1, spend: 0, total_leads: 0, cpl: 0, loading: false, error: (err as Error).message },
+      }));
     }
   };
 
@@ -2068,6 +2192,10 @@ export default function Home() {
     onDeactivate:    ()=>handleDeactivate(c.id),
     onDelete:        ()=>handleDelete(c.id),
     onToggleAlerta:  ()=>handleToggleAlerta(c.id),
+    metaData:        metaInsights[c.id] ?? null,
+    onRefreshMeta:   () => c.meta_ad_account_id
+      ? fetchMetaInsights(c.id, c.meta_ad_account_id, c.meta_access_token ?? null, dateFrom || undefined, dateTo || undefined)
+      : undefined,
   });
 
 const backToDashboard = () => {
