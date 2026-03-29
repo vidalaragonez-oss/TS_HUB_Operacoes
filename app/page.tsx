@@ -41,6 +41,7 @@ import {
   MoreHorizontal,
   Bug,
   Bell,
+  CreditCard,
 } from "lucide-react";
 import {
   NovaOperacaoModal,
@@ -68,6 +69,9 @@ interface GestorPerfil {
   operacao_id: string | null;
   user_id: string;
 }
+
+// Augmenta o tipo Cliente importado para incluir o novo campo
+type ClienteComAlerta = Cliente & { alerta_pagamento?: boolean };
 
 type PeriodPreset = "7d" | "15d" | "30d" | "90d" | "custom" | "max";
 type ViewMode    = "grid" | "list";
@@ -1070,8 +1074,8 @@ function ClientActionMenu({ onEdit, onDeactivate, onDelete, isInactive }: {
 // CLIENT CARD
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function ClientCard({ client, onSelect, onEdit, onDeactivate, onDelete, isDragging }: {
-  client:Cliente; onSelect:()=>void; onEdit:()=>void; onDeactivate:()=>void; onDelete:()=>void; isDragging?:boolean;
+function ClientCard({ client, onSelect, onEdit, onDeactivate, onDelete, onToggleAlerta, isDragging }: {
+  client:Cliente; onSelect:()=>void; onEdit:()=>void; onDeactivate:()=>void; onDelete:()=>void; onToggleAlerta:()=>void; isDragging?:boolean;
 }) {
   const st=clienteStatus(client);
   const gestorColor=client.gestor_estrategico==="Duda"?"bg-blue-600/20 text-blue-400 border-blue-500/30":
@@ -1079,13 +1083,22 @@ function ClientCard({ client, onSelect, onEdit, onDeactivate, onDelete, isDraggi
     "bg-[#201f1d] text-[#7a7268] border-[#2e2c29]";
   const uniquePlats=client.platforms.filter((p,i,a)=>a.findIndex(x=>x.key===p.key)===i);
   const isInactive=isClienteInativo(client);
+  const temAlerta = client.alerta_pagamento === true;
 
   return (
     <div onClick={onSelect}
-      className={`rounded-2xl border p-4 grid grid-rows-[auto_1fr_auto] gap-3 cursor-pointer transition-all duration-200 min-h-[178px] hover:border-amber-500/40 hover:shadow-[0_4px_20px_rgba(245,166,35,0.08)] ${isDragging?"bg-zinc-800 border-amber-500/50 shadow-[0_8px_32px_rgba(0,0,0,0.4)]":isInactive?"border-red-500/30 bg-[#1e1b1b] opacity-60":!client.platforms?.length?"border-amber-500/25 bg-[#1e1d1a]":"border-[#2e2c29] bg-[#1a1917]"}`}>
+      className={`rounded-2xl border p-4 grid grid-rows-[auto_1fr_auto] gap-3 cursor-pointer transition-all duration-200 min-h-[178px] hover:border-amber-500/40 hover:shadow-[0_4px_20px_rgba(245,166,35,0.08)] ${isDragging?"bg-zinc-800 border-amber-500/50 shadow-[0_8px_32px_rgba(0,0,0,0.4)]":temAlerta?"border-red-500/30 bg-red-500/5":isInactive?"border-red-500/30 bg-[#1e1b1b] opacity-60":!client.platforms?.length?"border-amber-500/25 bg-[#1e1d1a]":"border-[#2e2c29] bg-[#1a1917]"}`}>
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
-          <p className="font-bold text-[#e8e2d8] text-sm leading-tight">{client.nome}</p>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={e=>{e.stopPropagation();onToggleAlerta();}}
+              title={temAlerta ? "Remover alerta de pagamento" : "Marcar alerta de pagamento"}
+              className="shrink-0 transition-colors hover:scale-110">
+              <CreditCard size={14} className={temAlerta ? "text-red-500" : "text-[#3a3835]"} />
+            </button>
+            <p className="font-bold text-[#e8e2d8] text-sm leading-tight">{client.nome}</p>
+          </div>
           <span className={`inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border ${st.badge}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`}/>{st.label}
           </span>
@@ -1116,8 +1129,8 @@ function ClientCard({ client, onSelect, onEdit, onDeactivate, onDelete, isDraggi
   );
 }
 
-function ClientRow({ client, onSelect, onEdit, onDeactivate, onDelete, dragHandleProps, dragRef, draggableProps, isDragging, showDragHandle }: {
-  client:Cliente; onSelect:()=>void; onEdit:()=>void; onDeactivate:()=>void; onDelete:()=>void;
+function ClientRow({ client, onSelect, onEdit, onDeactivate, onDelete, onToggleAlerta, dragHandleProps, dragRef, draggableProps, isDragging, showDragHandle }: {
+  client:Cliente; onSelect:()=>void; onEdit:()=>void; onDeactivate:()=>void; onDelete:()=>void; onToggleAlerta:()=>void;
   dragHandleProps?: Record<string, unknown> | null;
   dragRef?: (el: HTMLElement | null) => void;
   draggableProps?: Record<string, unknown>;
@@ -1130,13 +1143,14 @@ function ClientRow({ client, onSelect, onEdit, onDeactivate, onDelete, dragHandl
     "bg-[#201f1d] text-[#7a7268] border-[#2e2c29]";
   const uniquePlats=client.platforms.filter((p,i,a)=>a.findIndex(x=>x.key===p.key)===i);
   const isInactive=isClienteInativo(client);
+  const temAlerta = client.alerta_pagamento === true;
   return (
     <tr
       ref={dragRef as React.Ref<HTMLTableRowElement>}
       {...(draggableProps as React.HTMLAttributes<HTMLTableRowElement>)}
       onClick={onSelect}
       style={{ ...((draggableProps as {style?: React.CSSProperties})?.style), boxShadow: isDragging?"0 4px 20px rgba(0,0,0,0.4)":undefined }}
-      className={`border-b border-[#2e2c29]/60 cursor-pointer transition-colors hover:bg-amber-500/5 ${isInactive?"opacity-50":""} ${isDragging?"bg-zinc-800/90":""}`}>
+      className={`border-b border-[#2e2c29]/60 cursor-pointer transition-colors hover:bg-amber-500/5 ${temAlerta?"bg-red-500/5":""} ${isInactive?"opacity-50":""} ${isDragging?"bg-zinc-800/90":""}`}>
       {showDragHandle && (
         <td className="pl-3 pr-1 py-3 w-6" {...(dragHandleProps as React.HTMLAttributes<HTMLTableCellElement>)} onClick={e=>e.stopPropagation()}>
           <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="text-[#3a3835] cursor-grab active:cursor-grabbing">
@@ -1146,7 +1160,14 @@ function ClientRow({ client, onSelect, onEdit, onDeactivate, onDelete, dragHandl
           </svg>
         </td>
       )}
-      <td className="px-4 py-3"><p className="font-semibold text-[#e8e2d8] text-sm truncate max-w-[180px]">{client.nome}</p></td>
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-2">
+          <button onClick={e=>{e.stopPropagation();onToggleAlerta();}} title={temAlerta?"Remover alerta":"Marcar alerta de pagamento"} className="shrink-0 hover:scale-110 transition-transform">
+            <CreditCard size={13} className={temAlerta ? "text-red-500" : "text-[#3a3835]"} />
+          </button>
+          <p className="font-semibold text-[#e8e2d8] text-sm truncate max-w-[180px]">{client.nome}</p>
+        </div>
+      </td>
       <td className="px-4 py-3">
         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border whitespace-nowrap ${st.badge}`}>
           <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`}/>{st.label}
@@ -1577,6 +1598,7 @@ function normalizeCliente(raw: Record<string, unknown>): Cliente {
     status,
     platforms: Array.isArray(raw.platforms) ? (raw.platforms as Platform[]) : [],
     tipo_campanha: tcArray,
+    alerta_pagamento: raw.alerta_pagamento === true,
   } as Cliente;
 }
 
@@ -1618,6 +1640,7 @@ export default function Home() {
   const [clientSearch, setClientSearch] = useState("");
   const [gestorFilter, setGestorFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("todos");
+  const [pendenciasFilter, setPendenciasFilter] = useState(false);
   const [viewMode, setViewMode]         = useState<ViewMode>("grid");
   const [sortMode, setSortMode]         = useState<SortMode>("personalizada");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -1873,6 +1896,22 @@ export default function Home() {
     }
   };
 
+  const handleToggleAlerta = async (id: string) => {
+    const c = clientes.find(x=>x.id===id);
+    if (!c) return;
+    const novoValor = !c.alerta_pagamento;
+    try {
+      const { error } = await supabase.from("clientes").update({ alerta_pagamento: novoValor }).eq("id", id);
+      if (error) throw error;
+      setClientes(prev => prev.map(x => x.id===id ? {...x, alerta_pagamento: novoValor} : x));
+      toast[novoValor ? "warning" : "success"](
+        novoValor ? `⚠️ Alerta de pagamento ativado para ${c.nome}` : `✅ Alerta removido de ${c.nome}`
+      );
+    } catch (err: unknown) {
+      toast.error(`Erro: ${err instanceof Error ? err.message : "Erro desconhecido"}`);
+    }
+  };
+
   const handleDragEnd = useCallback(async (result: { source:{index:number}; destination:{index:number}|null }) => {
     if (!result.destination) return;
     const { source, destination } = result;
@@ -1990,7 +2029,10 @@ export default function Home() {
       matchStatus = isInactive;
     }
 
-    return matchSearch && matchGestor && matchStatus;
+    // 4. Filtro de Pendências
+    const matchPendencia = !pendenciasFilter || c.alerta_pagamento === true;
+
+    return matchSearch && matchGestor && matchStatus && matchPendencia;
   })
     .sort((a,b) => {
       const aInactive = isClienteInativo(a);
@@ -2021,10 +2063,11 @@ export default function Home() {
 
   const sharedProps = (c: Cliente) => ({
     client:c,
-    onSelect:     ()=>handleSelectCliente(c),
-    onEdit:       ()=>setClienteModal({mode:"edit",client:c}),
-    onDeactivate: ()=>handleDeactivate(c.id),
-    onDelete:     ()=>handleDelete(c.id),
+    onSelect:        ()=>handleSelectCliente(c),
+    onEdit:          ()=>setClienteModal({mode:"edit",client:c}),
+    onDeactivate:    ()=>handleDeactivate(c.id),
+    onDelete:        ()=>handleDelete(c.id),
+    onToggleAlerta:  ()=>handleToggleAlerta(c.id),
   });
 
 const backToDashboard = () => {
@@ -2249,6 +2292,18 @@ const backToDashboard = () => {
                       </div>
                     ))}
                     <span className="text-[0.7rem] font-semibold text-[#7a7268]">Total: <span className="text-[#e8e2d8]">{stats.total}</span></span>
+                    {clientes.filter(c=>c.alerta_pagamento).length > 0 && (
+                      <button
+                        onClick={() => setPendenciasFilter(v => !v)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[0.7rem] font-bold border transition-all ${
+                          pendenciasFilter
+                            ? "bg-red-500/20 border-red-500/50 text-red-400"
+                            : "bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20"
+                        }`}>
+                        <CreditCard size={11} />
+                        ⚠️ Ver Pendências ({clientes.filter(c=>c.alerta_pagamento).length})
+                      </button>
+                    )}
                   </>
                 )}
               </div>
