@@ -1083,6 +1083,13 @@ type MetaInsightData = {
   total_leads: number;
   cpl: number;
   currency: string;
+  // Por objetivo
+  form_leads: number;
+  form_spend: number;
+  form_cpl: number;
+  msg_leads: number;
+  msg_spend: number;
+  msg_cpl: number;
   loading: boolean;
   error?: string;
 } | null;
@@ -1616,68 +1623,267 @@ function EditClienteModal({
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// RADAR META ADS — Painel inline no cliente ativo
+// RADAR META ADS — Painel inline no cliente ativo, filtro independente
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function RadarMetaAds({ data, periodLabel }: { data: MetaInsightData; periodLabel: string }) {
-  if (!data) return null;
+type RadarPreset = "today" | "yesterday" | "7d" | "30d" | "custom";
 
+function computeRadarDates(preset: RadarPreset): { since: string; until: string } {
+  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  const today = new Date();
+  if (preset === "today") {
+    const s = fmt(today); return { since: s, until: s };
+  }
+  if (preset === "yesterday") {
+    const y = new Date(today); y.setDate(today.getDate() - 1); const s = fmt(y); return { since: s, until: s };
+  }
+  if (preset === "7d") {
+    const from = new Date(today); from.setDate(today.getDate() - 6); return { since: fmt(from), until: fmt(today) };
+  }
+  if (preset === "30d") {
+    const from = new Date(today); from.setDate(today.getDate() - 29); return { since: fmt(from), until: fmt(today) };
+  }
+  return { since: fmt(today), until: fmt(today) };
+}
+
+const RADAR_PRESET_LABELS: Record<RadarPreset, string> = {
+  today: "Hoje", yesterday: "Ontem", "7d": "7 dias", "30d": "30 dias", custom: "Custom",
+};
+
+// ─── RadarWrapper: componente com estado próprio ──────────────────────────────
+function renderRadar({
+  data,
+  preset,
+  customFrom,
+  customTo,
+  showCustom,
+  onPresetClick,
+  onCustomFromChange,
+  onCustomToChange,
+  onCustomApply,
+}: {
+  data: MetaInsightData;
+  preset: RadarPreset;
+  customFrom: string;
+  customTo: string;
+  showCustom: boolean;
+  onPresetClick: (p: RadarPreset) => void;
+  onCustomFromChange: (v: string) => void;
+  onCustomToChange: (v: string) => void;
+  onCustomApply: () => void;
+}) {
   const fmt = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const symbol = (data.currency ?? "BRL") === "USD" ? "$" : "R$";
+  const symbol = !data || (data.currency ?? "BRL") === "BRL" ? "R$" : "$";
 
-  if (data.loading) {
-    return (
-      <div className="rounded-xl border border-[#2e2c29] bg-[#1a1917] p-4 flex items-center gap-3 animate-pulse">
-        <div className="w-2 h-2 rounded-full bg-blue-500/50 shrink-0" />
-        <div className="space-y-1.5 flex-1">
-          <div className="h-2.5 w-24 bg-[#2e2c29] rounded" />
-          <div className="h-3 w-48 bg-[#2e2c29] rounded" />
-        </div>
-      </div>
-    );
-  }
-
-  if (data.error) {
-    return (
-      <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-3 flex items-center gap-2">
-        <div className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
-        <p className="text-[10px] text-red-400 font-semibold">Radar Meta Ads — erro ao carregar: {data.error}</p>
-      </div>
-    );
-  }
-
-  if (!data.account_status || data.account_status < 1) return null;
+  const hasForm = data && !data.loading && !data.error && data.form_leads > 0;
+  const hasMsg  = data && !data.loading && !data.error && data.msg_leads  > 0;
+  const hasData = data && !data.loading && !data.error && data.account_status >= 1;
 
   return (
-    <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0" />
-        <span className="text-[10px] font-bold uppercase tracking-widest text-blue-400">Radar Meta Ads</span>
-        <span className="text-[10px] text-[#4a4844] ml-1">· {periodLabel}</span>
+    <div className="rounded-xl border border-blue-500/20 bg-[#111827]/60 p-4 space-y-3">
+      {/* Header + seletor de período */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+            <path d="M24 12.073c0-6.627-5.372-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" fill="#1877F2"/>
+          </svg>
+          <span className="text-[10px] font-bold uppercase tracking-widest text-blue-400">Radar Meta Ads</span>
+          {data?.loading && <span className="w-3 h-3 rounded-full border border-t-blue-400 animate-spin border-blue-500/20 inline-block" />}
+        </div>
+        {/* Pills de período */}
+        <div className="flex items-center gap-1 flex-wrap">
+          {(["today","yesterday","7d","30d","custom"] as RadarPreset[]).map(p => (
+            <button key={p} onClick={() => onPresetClick(p)}
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all ${
+                preset === p
+                  ? "bg-blue-500 border-blue-400 text-white"
+                  : "bg-[#1a1917] border-[#2e2c29] text-[#7a7268] hover:text-[#e8e2d8] hover:border-[#4a4844]"
+              }`}>
+              {RADAR_PRESET_LABELS[p]}
+            </button>
+          ))}
+        </div>
       </div>
-      <div className="grid grid-cols-3 gap-3">
-        <div className="flex flex-col gap-0.5">
-          <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Gasto Total</p>
-          <p className="text-base font-extrabold text-[#e8e2d8] leading-tight">{symbol} {fmt(data.spend)}</p>
+
+      {/* Campos de data personalizada */}
+      {showCustom && (
+        <div className="flex flex-col sm:flex-row gap-2">
+          <input type="date" value={customFrom} onChange={e => onCustomFromChange(e.target.value)}
+            className="flex-1 bg-[#1a1917] border border-[#2e2c29] rounded-lg px-3 py-1.5 text-xs text-[#e8e2d8] outline-none focus:border-blue-500/60 transition-colors [color-scheme:dark]"/>
+          <input type="date" value={customTo} onChange={e => onCustomToChange(e.target.value)}
+            className="flex-1 bg-[#1a1917] border border-[#2e2c29] rounded-lg px-3 py-1.5 text-xs text-[#e8e2d8] outline-none focus:border-blue-500/60 transition-colors [color-scheme:dark]"/>
+          <button onClick={onCustomApply} disabled={!customFrom || !customTo}
+            className="px-3 py-1.5 rounded-lg bg-blue-500 text-white text-[10px] font-bold hover:bg-blue-400 transition-colors disabled:opacity-40 disabled:pointer-events-none whitespace-nowrap">
+            Aplicar
+          </button>
         </div>
-        <div className="flex flex-col gap-0.5">
-          <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">CPL</p>
-          <p className="text-base font-extrabold text-[#e8e2d8] leading-tight">{symbol} {fmt(data.cpl)}</p>
+      )}
+
+      {/* Estado de erro */}
+      {data?.error && (
+        <div className="flex items-center gap-2 py-1">
+          <div className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
+          <p className="text-[10px] text-red-400 font-semibold">Erro: {data.error}</p>
         </div>
-        <div className="flex flex-col gap-0.5">
-          <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Leads</p>
-          <p className="text-base font-extrabold text-[#e8e2d8] leading-tight">{data.total_leads}</p>
-          {(data.leads > 0 || data.messages > 0) && (
-            <p className="text-[9px] text-[#7a7268] font-medium leading-snug">
-              {data.leads > 0 && `${data.leads} via Form`}
-              {data.leads > 0 && data.messages > 0 && " · "}
-              {data.messages > 0 && `${data.messages} via Msg`}
-            </p>
+      )}
+
+      {/* Loading skeleton */}
+      {data?.loading && (
+        <div className="grid grid-cols-3 gap-3 animate-pulse">
+          {[1,2,3].map(i => (
+            <div key={i} className="space-y-1.5">
+              <div className="h-2 w-14 bg-[#2e2c29] rounded" />
+              <div className="h-5 w-20 bg-[#2e2c29] rounded" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Dados: bloco consolidado */}
+      {hasData && !hasForm && !hasMsg && (
+        <div className="grid grid-cols-3 gap-3">
+          <div className="flex flex-col gap-0.5">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Gasto Total</p>
+            <p className="text-sm font-extrabold text-[#e8e2d8]">{symbol} {fmt(data!.spend)}</p>
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">CPL Médio</p>
+            <p className="text-sm font-extrabold text-[#e8e2d8]">{symbol} {fmt(data!.cpl)}</p>
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Leads</p>
+            <p className="text-sm font-extrabold text-[#e8e2d8]">{data!.total_leads}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Dados: blocos separados por objetivo */}
+      {hasData && (hasForm || hasMsg) && (
+        <div className="space-y-2">
+          {/* Totais no topo */}
+          <div className="flex items-center justify-between pb-2 border-b border-[#2e2c29]">
+            <div className="flex items-center gap-3">
+              <div>
+                <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Gasto Total</p>
+                <p className="text-sm font-extrabold text-[#e8e2d8]">{symbol} {fmt(data!.spend)}</p>
+              </div>
+              <div className="w-px h-8 bg-[#2e2c29]" />
+              <div>
+                <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">CPL Médio</p>
+                <p className="text-sm font-extrabold text-[#e8e2d8]">{symbol} {fmt(data!.cpl)}</p>
+              </div>
+              <div className="w-px h-8 bg-[#2e2c29]" />
+              <div>
+                <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Total Leads</p>
+                <p className="text-sm font-extrabold text-[#e8e2d8]">{data!.total_leads}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Bloco: Formulário */}
+          {hasForm && (
+            <div className="flex items-center gap-3 rounded-lg bg-blue-500/8 border border-blue-500/15 px-3 py-2.5">
+              <div className="shrink-0">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30 uppercase tracking-wide">
+                  Formulário
+                </span>
+              </div>
+              <div className="flex items-center gap-4 flex-1 flex-wrap">
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Leads</p>
+                  <p className="text-xs font-extrabold text-[#e8e2d8]">{data!.form_leads}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Gasto Est.</p>
+                  <p className="text-xs font-extrabold text-[#e8e2d8]">{symbol} {fmt(data!.form_spend)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">CPL</p>
+                  <p className="text-xs font-extrabold text-blue-300">{symbol} {fmt(data!.form_cpl)}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Bloco: Mensagens */}
+          {hasMsg && (
+            <div className="flex items-center gap-3 rounded-lg bg-emerald-500/8 border border-emerald-500/15 px-3 py-2.5">
+              <div className="shrink-0">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase tracking-wide">
+                  Mensagens
+                </span>
+              </div>
+              <div className="flex items-center gap-4 flex-1 flex-wrap">
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Leads</p>
+                  <p className="text-xs font-extrabold text-[#e8e2d8]">{data!.msg_leads}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Gasto Est.</p>
+                  <p className="text-xs font-extrabold text-[#e8e2d8]">{symbol} {fmt(data!.msg_spend)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">CPL</p>
+                  <p className="text-xs font-extrabold text-emerald-300">{symbol} {fmt(data!.msg_cpl)}</p>
+                </div>
+              </div>
+            </div>
           )}
         </div>
-      </div>
+      )}
+
+      {/* Sem dados */}
+      {data && !data.loading && !data.error && data.account_status >= 1 && data.total_leads === 0 && data.spend === 0 && (
+        <p className="text-[10px] text-[#4a4844] italic text-center py-1">Nenhum dado para o período selecionado.</p>
+      )}
     </div>
   );
+}
+
+// ─── RadarWrapper: componente com estado próprio ──────────────────────────────
+function RadarWrapper({
+  clienteId, accountId, token, data, onFetch,
+}: {
+  clienteId: string;
+  accountId: string;
+  token: string | null;
+  data: MetaInsightData;
+  onFetch: (clienteId: string, accountId: string, token: string | null, since: string, until: string) => void;
+}) {
+  const [preset, setPreset]         = useState<RadarPreset>("7d");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo,   setCustomTo]   = useState("");
+  const [showCustom, setShowCustom] = useState(false);
+
+  // Dispara fetch ao montar e ao mudar preset (exceto custom)
+  useEffect(() => {
+    if (preset === "custom") return;
+    const { since, until } = computeRadarDates(preset);
+    onFetch(clienteId, accountId, token, since, until);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clienteId, preset]);
+
+  const handlePresetClick = (p: RadarPreset) => {
+    setPreset(p);
+    setShowCustom(p === "custom");
+  };
+
+  const handleCustomApply = () => {
+    if (!customFrom || !customTo) return;
+    onFetch(clienteId, accountId, token, customFrom, customTo);
+  };
+
+  return renderRadar({
+    data,
+    preset,
+    customFrom,
+    customTo,
+    showCustom,
+    onPresetClick: handlePresetClick,
+    onCustomFromChange: setCustomFrom,
+    onCustomToChange: setCustomTo,
+    onCustomApply: handleCustomApply,
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1792,6 +1998,12 @@ export default function Home() {
     total_leads: number;
     cpl: number;
     currency: string;
+    form_leads: number;
+    form_spend: number;
+    form_cpl: number;
+    msg_leads: number;
+    msg_spend: number;
+    msg_cpl: number;
     loading: boolean;
     error?: string;
   }>>({});
@@ -2081,7 +2293,8 @@ export default function Home() {
     since?: string,
     until?: string,
   ) => {
-    setMetaInsights(prev => ({ ...prev, [clienteId]: { ...prev[clienteId], loading: true, account_status: 0, spend: 0, leads: 0, messages: 0, total_leads: 0, cpl: 0, currency: "BRL" } }));
+    const zero = { account_status: 0, spend: 0, leads: 0, messages: 0, total_leads: 0, cpl: 0, currency: "BRL", form_leads: 0, form_spend: 0, form_cpl: 0, msg_leads: 0, msg_spend: 0, msg_cpl: 0 };
+    setMetaInsights(prev => ({ ...prev, [clienteId]: { ...zero, loading: true } }));
     try {
       const params = new URLSearchParams({ action: "insights", account_id: accountId });
       if (token) params.set("token", token);
@@ -2105,18 +2318,24 @@ export default function Home() {
         [clienteId]: {
           account_status: json.account_status,
           spend:          json.spend,
-          leads:          json.leads ?? 0,
-          messages:       json.messages ?? 0,
+          leads:          json.leads          ?? 0,
+          messages:       json.messages       ?? 0,
           total_leads:    json.total_leads,
           cpl:            json.cpl,
-          currency:       json.currency ?? "BRL",
+          currency:       json.currency       ?? "BRL",
+          form_leads:     json.form_leads     ?? 0,
+          form_spend:     json.form_spend     ?? 0,
+          form_cpl:       json.form_cpl       ?? 0,
+          msg_leads:      json.msg_leads      ?? 0,
+          msg_spend:      json.msg_spend      ?? 0,
+          msg_cpl:        json.msg_cpl        ?? 0,
           loading:        false,
         },
       }));
     } catch (err: unknown) {
       setMetaInsights(prev => ({
         ...prev,
-        [clienteId]: { account_status: -1, spend: 0, leads: 0, messages: 0, total_leads: 0, cpl: 0, currency: "BRL", loading: false, error: (err as Error).message },
+        [clienteId]: { account_status: -1, spend: 0, leads: 0, messages: 0, total_leads: 0, cpl: 0, currency: "BRL", form_leads: 0, form_spend: 0, form_cpl: 0, msg_leads: 0, msg_spend: 0, msg_cpl: 0, loading: false, error: (err as Error).message },
       }));
     }
   };
@@ -2290,19 +2509,6 @@ export default function Home() {
       window.scrollTo({ top: scrollPosRef.current, behavior: "instant" });
     }, 10); // Devolve pro pixel exato
   };
-
-  // ── Sincroniza Radar Meta Ads com o filtro de data do painel do cliente ──
-  useEffect(() => {
-    if (!clienteAtivo?.meta_ad_account_id) return;
-    fetchMetaInsights(
-      clienteAtivo.id,
-      clienteAtivo.meta_ad_account_id,
-      clienteAtivo.meta_access_token ?? null,
-      dateFrom || undefined,
-      dateTo || undefined,
-    );
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clienteAtivo?.id, dateFrom, dateTo]);
 
   const isAdmin = perfil?.role === "admin";
 
@@ -2754,19 +2960,15 @@ export default function Home() {
 
             <Dropzone onParsed={handleLeadsParsed}/>
 
-            {clienteAtivo.meta_ad_account_id && (() => {
-              const metaD = metaInsights[clienteAtivo.id] ?? null;
-              let periodLabel = "Últimos 7 dias";
-              if (dateFrom && dateTo) {
-                periodLabel = `${dateFrom.split("-").reverse().join("/")} → ${dateTo.split("-").reverse().join("/")}`;
-              } else if (periodPreset !== "max" && periodPreset !== "custom") {
-                const map: Record<string, string> = { "7d": "Últimos 7 dias", "15d": "Últimos 15 dias", "30d": "Últimos 30 dias", "90d": "Últimos 90 dias" };
-                periodLabel = map[periodPreset] ?? "Últimos 7 dias";
-              } else if (periodPreset === "max") {
-                periodLabel = "Todo o período";
-              }
-              return <RadarMetaAds data={metaD} periodLabel={periodLabel} />;
-            })()}
+            {clienteAtivo.meta_ad_account_id && (
+              <RadarWrapper
+                clienteId={clienteAtivo.id}
+                accountId={clienteAtivo.meta_ad_account_id}
+                token={clienteAtivo.meta_access_token ?? null}
+                data={metaInsights[clienteAtivo.id] ?? null}
+                onFetch={fetchMetaInsights}
+              />
+            )}
 
             <div className="flex flex-col gap-3">
               <div className="flex flex-col sm:flex-row gap-3">
