@@ -22,6 +22,10 @@ import {
   Bell,
   ImageIcon,
   CheckCircle,
+  Link2,
+  RefreshCw,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
@@ -55,6 +59,10 @@ export interface Cliente {
   created_at: string;
   ordem?: number | null;
   tipo_campanha?: string[] | null;
+  // ── Meta Ads Integration ──────────────────────────────────────────────────
+  meta_ad_account_id?: string | null;
+  meta_access_token?:  string | null;
+  meta_status?:        string | null;
 }
 
 export interface Lead {
@@ -454,6 +462,30 @@ export function ClienteModal({
 
   const [saving, setSaving] = useState(false);
 
+  // ── Meta Ads Integration ────────────────────────────────────────────────
+  const [metaToken,     setMetaToken]     = useState(initial?.meta_access_token ?? "");
+  const [metaAccountId, setMetaAccountId] = useState(initial?.meta_ad_account_id ?? "");
+  const [metaAccounts,  setMetaAccounts]  = useState<{ id: string; name: string; status: number }[]>([]);
+  const [metaLoading,   setMetaLoading]   = useState(false);
+
+  const handleFetchAccounts = async () => {
+    setMetaLoading(true);
+    setMetaAccounts([]);
+    try {
+      const params = new URLSearchParams({ action: "accounts" });
+      if (metaToken.trim()) params.set("token", metaToken.trim());
+      const res  = await fetch(`/api/meta?${params}`);
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      setMetaAccounts(json.accounts ?? []);
+      if ((json.accounts ?? []).length === 0) toast.warning("Nenhuma conta encontrada para esse token.");
+    } catch (err: unknown) {
+      toast.error(`Erro Meta Ads: ${(err as Error).message}`);
+    } finally {
+      setMetaLoading(false);
+    }
+  };
+
   // Toggle de plataforma: ao desmarcar limpa as campanhas daquela plataforma
   const togglePlatform = (key: PlatformKey) => {
     setActivePlats(prev => {
@@ -494,6 +526,10 @@ export function ClienteModal({
       status,
       // CONVERTE PARA TEXTO. Ex: "Lead Generation (Meta),Search Network (G-Ads)"
       tipo_campanha: tipoCampanhaArray.length > 0 ? tipoCampanhaArray.join(',') : null,
+      // ── Meta Ads ────────────────────────────────────────────────────────────
+      meta_ad_account_id: metaAccountId.trim() || null,
+      meta_access_token:  metaToken.trim() || null,
+      meta_status: metaAccountId.trim() ? "vinculado" : "sem_link",
     };
 
     setSaving(true);
@@ -719,6 +755,90 @@ export function ClienteModal({
                 </div>
               );
             })}
+          </div>
+
+
+          {/* ── Integração Meta Ads ─────────────────────────────────────────── */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded bg-blue-600 flex items-center justify-center shrink-0">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="white">
+                  <path d="M24 12.073c0-6.627-5.372-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                </svg>
+              </div>
+              <label className="text-[10px] font-bold uppercase tracking-widest text-[#7a7268]">Integração Meta Ads</label>
+              {metaAccountId && (
+                <span className="ml-auto flex items-center gap-1 text-[10px] font-semibold text-emerald-400">
+                  <Wifi size={10} /> Vinculada
+                </span>
+              )}
+            </div>
+
+            {/* Token específico */}
+            <div className="space-y-1">
+              <label className="text-[10px] text-[#4a4844] font-medium">
+                Token Específico{" "}<span className="text-[#3a3835]">(opcional — se vazio usa o Token Geral do sistema)</span>
+              </label>
+              <input
+                type="password"
+                value={metaToken}
+                onChange={e => setMetaToken(e.target.value)}
+                placeholder="EAAxxxxx... (deixe vazio para usar token geral)"
+                className="w-full bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 py-2.5 text-xs text-[#e8e2d8] placeholder:text-[#3a3835] outline-none focus:border-blue-500/50 transition-colors font-mono"
+              />
+            </div>
+
+            {/* Botão buscar contas */}
+            <button
+              type="button"
+              onClick={handleFetchAccounts}
+              disabled={metaLoading}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-blue-600/15 border border-blue-500/30 text-blue-400 text-xs font-semibold hover:bg-blue-600/25 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+            >
+              {metaLoading
+                ? <><Loader2 size={13} className="animate-spin" /> Buscando contas...</>
+                : <><RefreshCw size={13} /> Buscar Contas Disponíveis</>
+              }
+            </button>
+
+            {/* Select de contas */}
+            {metaAccounts.length > 0 && (
+              <div className="space-y-1">
+                <label className="text-[10px] text-[#4a4844] font-medium">Conta de Anúncios</label>
+                <div className="relative">
+                  <select
+                    value={metaAccountId}
+                    onChange={e => setMetaAccountId(e.target.value)}
+                    className="w-full appearance-none bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 pr-9 py-2.5 text-sm text-[#e8e2d8] outline-none focus:border-blue-500/50 transition-colors cursor-pointer"
+                  >
+                    <option value="">Selecionar conta...</option>
+                    {metaAccounts.map(acc => (
+                      <option key={acc.id} value={String(acc.id)}>
+                        {acc.name} ({acc.id}) {acc.status !== 1 ? "⚠️" : "✓"}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#7a7268]" />
+                </div>
+              </div>
+            )}
+
+            {/* Conta já vinculada (sem ter clicado em buscar) */}
+            {metaAccountId && metaAccounts.length === 0 && (
+              <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-blue-500/8 border border-blue-500/20">
+                <div className="flex items-center gap-2">
+                  <Link2 size={12} className="text-blue-400" />
+                  <span className="text-xs text-[#e8e2d8] font-mono">{metaAccountId}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMetaAccountId("")}
+                  className="text-[10px] text-red-400 hover:text-red-300 font-semibold transition-colors"
+                >
+                  Desvincular
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="pb-2" />
