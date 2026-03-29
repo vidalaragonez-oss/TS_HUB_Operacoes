@@ -469,11 +469,15 @@ export function ClienteModal({
   const [metaAccounts,      setMetaAccounts]      = useState<{ id: string; name: string; status: number }[]>([]);
   const [metaLoading,       setMetaLoading]       = useState(false);
   const [metaAccountSearch, setMetaAccountSearch] = useState("");
+  const [metaDropdownOpen,  setMetaDropdownOpen]  = useState(false);
+  const metaSearchRef = useRef<HTMLInputElement>(null);
+  const metaDropdownRef = useRef<HTMLDivElement>(null);
 
   const handleFetchAccounts = async () => {
     setMetaLoading(true);
     setMetaAccounts([]);
     setMetaAccountSearch(""); // reset do filtro ao buscar novamente
+    setMetaDropdownOpen(false);
     try {
       const params = new URLSearchParams({ action: "accounts" });
       if (metaToken.trim()) params.set("token", metaToken.trim());
@@ -488,6 +492,22 @@ export function ClienteModal({
       setMetaLoading(false);
     }
   };
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        metaDropdownRef.current &&
+        !metaDropdownRef.current.contains(e.target as Node)
+      ) {
+        setMetaDropdownOpen(false);
+      }
+    };
+    if (metaDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [metaDropdownOpen]);
 
   // Toggle de plataforma: ao desmarcar limpa as campanhas daquela plataforma
   const togglePlatform = (key: PlatformKey) => {
@@ -804,72 +824,157 @@ export function ClienteModal({
               }
             </button>
 
-            {/* Select de contas */}
+            {/* Autocomplete de contas */}
             {metaAccounts.length > 0 && (
               <div className="space-y-2">
                 <label className="text-[10px] text-[#4a4844] font-medium">Conta de Anúncios</label>
 
-                {/* Campo de busca */}
-                <div className="relative">
-                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#4a4844] pointer-events-none" />
-                  <input
-                    type="text"
-                    value={metaAccountSearch}
-                    onChange={e => setMetaAccountSearch(e.target.value)}
-                    placeholder="Pesquisar conta..."
-                    className="w-full bg-[#111010] border border-[#2e2c29] rounded-xl pl-8 pr-4 py-2 text-xs text-[#e8e2d8] placeholder:text-[#3a3835] outline-none focus:border-blue-500/50 transition-colors"
-                  />
-                  {metaAccountSearch && (
-                    <button
-                      type="button"
-                      onClick={() => setMetaAccountSearch("")}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#4a4844] hover:text-[#e8e2d8] transition-colors"
-                    >
-                      <X size={12} />
-                    </button>
-                  )}
+                <div className="relative" ref={metaDropdownRef}>
+                  {/* Campo de busca / autocomplete */}
+                  <div className="relative">
+                    <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#4a4844] pointer-events-none z-10" />
+                    <input
+                      ref={metaSearchRef}
+                      type="text"
+                      value={metaAccountSearch}
+                      onChange={e => {
+                        setMetaAccountSearch(e.target.value);
+                        setMetaDropdownOpen(true);
+                        // Se o usuário editar o campo, limpa a seleção anterior
+                        if (metaAccountId) setMetaAccountId("");
+                      }}
+                      onFocus={() => setMetaDropdownOpen(true)}
+                      placeholder={
+                        metaAccountId
+                          ? (() => {
+                              const sel = metaAccounts.find(a => String(a.id) === metaAccountId);
+                              return sel ? `${sel.name} (${sel.id})` : "Conta selecionada";
+                            })()
+                          : "Buscar por nome ou ID..."
+                      }
+                      className={`w-full bg-[#111010] border rounded-xl pl-8 pr-9 py-2.5 text-xs text-[#e8e2d8] placeholder:text-[#3a3835] outline-none transition-colors ${
+                        metaAccountId
+                          ? "border-emerald-500/40 placeholder:text-emerald-400/80 focus:border-emerald-500/70"
+                          : metaDropdownOpen
+                          ? "border-blue-500/50"
+                          : "border-[#2e2c29] focus:border-blue-500/50"
+                      }`}
+                    />
+                    {/* Ícone direito: check se selecionado, X se tem texto, seta se vazio */}
+                    <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center">
+                      {metaAccountId ? (
+                        <Check size={14} className="text-emerald-400" />
+                      ) : metaAccountSearch ? (
+                        <button
+                          type="button"
+                          onClick={() => { setMetaAccountSearch(""); setMetaDropdownOpen(true); metaSearchRef.current?.focus(); }}
+                          className="text-[#4a4844] hover:text-[#e8e2d8] transition-colors"
+                        >
+                          <X size={12} />
+                        </button>
+                      ) : (
+                        <ChevronDown size={13} className={`text-[#4a4844] transition-transform ${metaDropdownOpen ? "rotate-180" : ""}`} />
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Lista dropdown */}
+                  {metaDropdownOpen && (() => {
+                    const q = metaAccountSearch.toLowerCase().trim();
+                    const filtered = q
+                      ? metaAccounts.filter(acc =>
+                          acc.name.toLowerCase().includes(q) ||
+                          String(acc.id).toLowerCase().includes(q)
+                        )
+                      : metaAccounts;
+
+                    return (
+                      <div
+                        className="absolute left-0 right-0 top-[calc(100%+4px)] z-[200] bg-[#1a1917] border border-[#2e2c29] rounded-xl shadow-2xl overflow-hidden"
+                        style={{ maxHeight: "220px", overflowY: "auto" }}
+                      >
+                        {filtered.length === 0 ? (
+                          <div className="flex flex-col items-center justify-center py-5 gap-1.5">
+                            <Search size={16} className="text-[#3a3835]" />
+                            <p className="text-[10px] text-[#4a4844] italic">
+                              Nenhuma conta para &ldquo;{metaAccountSearch}&rdquo;
+                            </p>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="px-3 py-1.5 border-b border-[#1e1c1a]">
+                              <p className="text-[9px] font-semibold text-[#4a4844] uppercase tracking-widest">
+                                {filtered.length} de {metaAccounts.length} conta{metaAccounts.length !== 1 ? "s" : ""}
+                              </p>
+                            </div>
+                            {filtered.map(acc => {
+                              const isSelected = String(acc.id) === metaAccountId;
+                              return (
+                                <button
+                                  key={acc.id}
+                                  type="button"
+                                  onMouseDown={e => {
+                                    // mouseDown antes do blur do input
+                                    e.preventDefault();
+                                    setMetaAccountId(String(acc.id));
+                                    setMetaAccountSearch("");
+                                    setMetaDropdownOpen(false);
+                                  }}
+                                  className={`w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors group ${
+                                    isSelected
+                                      ? "bg-blue-500/10"
+                                      : "hover:bg-[#201f1d]"
+                                  }`}
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <p className={`text-xs font-medium truncate transition-colors ${
+                                      isSelected ? "text-blue-300" : "text-[#c8c0b4] group-hover:text-[#e8e2d8]"
+                                    }`}>
+                                      {acc.name}
+                                    </p>
+                                    <p className="text-[10px] text-[#4a4844] font-mono mt-0.5">{acc.id}</p>
+                                  </div>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border ${
+                                      acc.status === 1
+                                        ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/25"
+                                        : "text-orange-400 bg-orange-500/10 border-orange-500/25"
+                                    }`}>
+                                      {acc.status === 1 ? "ATIVA" : "⚠️"}
+                                    </span>
+                                    {isSelected && (
+                                      <Check size={13} className="text-emerald-400" />
+                                    )}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
-                {/* Select filtrado */}
-                {(() => {
-                  const q = metaAccountSearch.toLowerCase().trim();
-                  const filtered = q
-                    ? metaAccounts.filter(acc =>
-                        acc.name.toLowerCase().includes(q) ||
-                        String(acc.id).toLowerCase().includes(q)
-                      )
-                    : metaAccounts;
-
-                  if (filtered.length === 0) {
-                    return (
-                      <p className="text-[10px] text-[#4a4844] italic text-center py-2">
-                        Nenhuma conta encontrada para &ldquo;{metaAccountSearch}&rdquo;.
-                      </p>
-                    );
-                  }
-
-                  return (
-                    <div className="relative">
-                      <select
-                        value={metaAccountId}
-                        onChange={e => setMetaAccountId(e.target.value)}
-                        className="w-full appearance-none bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 pr-9 py-2.5 text-sm text-[#e8e2d8] outline-none focus:border-blue-500/50 transition-colors cursor-pointer"
+                {/* Confirmação da conta selecionada */}
+                {metaAccountId && (() => {
+                  const sel = metaAccounts.find(a => String(a.id) === metaAccountId);
+                  return sel ? (
+                    <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Check size={11} className="text-emerald-400 shrink-0" />
+                        <span className="text-[10px] text-emerald-300 font-medium truncate">{sel.name}</span>
+                        <span className="text-[10px] text-[#4a4844] font-mono shrink-0">({sel.id})</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => { setMetaAccountId(""); setMetaAccountSearch(""); }}
+                        className="text-[10px] text-[#4a4844] hover:text-red-400 font-semibold transition-colors shrink-0 ml-2"
                       >
-                        <option value="">Selecionar conta...</option>
-                        {filtered.map(acc => (
-                          <option key={acc.id} value={String(acc.id)}>
-                            {acc.name} ({acc.id}) {acc.status !== 1 ? "⚠️" : "✓"}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#7a7268]" />
-                      <p className="text-[9px] text-[#4a4844] mt-1 pl-1">
-                        {filtered.length} de {metaAccounts.length} conta{metaAccounts.length !== 1 ? "s" : ""}
-                        {q ? " encontrada" : ""}
-                        {filtered.length !== 1 ? "s" : ""}
-                      </p>
+                        Limpar
+                      </button>
                     </div>
-                  );
+                  ) : null;
                 })()}
               </div>
             )}
