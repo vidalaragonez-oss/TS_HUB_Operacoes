@@ -1142,23 +1142,12 @@ function MetaSummary({ data }: { data: MetaInsightData }) {
   const fmtInt = (v: number) => v.toLocaleString("pt-BR");
   const symbol = (data.currency ?? "BRL") === "USD" ? "$" : "R$";
 
-  // ── Linha resumo (sempre visível) ──────────────────────────────────────────
-  const totalLeads   = data.total_leads ?? 0;
-  const hasLeads     = totalLeads > 0;
-  const trafficOnly  = !hasLeads && (data.traffic_clicks ?? 0) > 0;
-  const engageOnly   = !hasLeads && !trafficOnly && (data.engagements ?? 0) > 0;
+  const totalLeads  = data.total_leads ?? 0;
+  const hasLeads    = totalLeads > 0;
+  const trafficOnly = !hasLeads && (data.traffic_clicks ?? 0) > 0;
+  const engageOnly  = !hasLeads && !trafficOnly && (data.engagements ?? 0) > 0;
 
-  const leadsLabel = trafficOnly
-    ? `${fmtInt(data.traffic_clicks ?? 0)} cliques`
-    : engageOnly
-    ? `${fmtInt(data.engagements ?? 0)} interações`
-    : `${fmtInt(totalLeads)} leads`;
-
-  const cplLabel = hasLeads
-    ? `CPL ${symbol} ${fmt(data.cpl)}`
-    : null;
-
-  // ── Linhas do tooltip ──────────────────────────────────────────────────────
+  // ── Tooltip rows ──────────────────────────────────────────────────────────
   type TooltipRow = { label: string; value: string; color: string };
   const tooltipRows: TooltipRow[] = [];
 
@@ -1191,41 +1180,49 @@ function MetaSummary({ data }: { data: MetaInsightData }) {
     });
   }
 
-  const hasTooltip = tooltipRows.length > 0;
+  const hasTooltip = tooltipRows.length > 1;
 
   return (
     <div
       ref={ref}
-      className="relative inline-block"
+      className="relative"
       onMouseEnter={() => hasTooltip && setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* ── Linha resumo ── */}
-      <div className={`flex items-center gap-2 flex-wrap mt-1 ${hasTooltip ? "cursor-help" : ""}`}>
-        <span className="text-[9px] font-semibold text-[#4a4844]">
-          Gasto: <span className="text-[#7a7268]">{symbol} {fmt(data.spend)}</span>
+      {/* ── Pills row ── */}
+      <div className={`flex items-center gap-1.5 flex-wrap ${hasTooltip ? "cursor-help" : ""}`}>
+        {/* Gasto */}
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#201f1d] border border-[#2e2c29] text-[#7a7268]">
+          <Activity size={9} className="text-[#4a4844]" />
+          {symbol} {fmt(data.spend)}
         </span>
-        <span className="text-[#2e2c29]">·</span>
-        <span className="text-[9px] font-semibold text-[#4a4844]">
-          {trafficOnly ? "Cliques: " : engageOnly ? "Engaj.: " : "Leads: "}
-          <span className="text-[#7a7268]">
-            {trafficOnly
-              ? fmtInt(data.traffic_clicks ?? 0)
-              : engageOnly
-              ? fmtInt(data.engagements ?? 0)
-              : fmtInt(totalLeads)}
+
+        {/* Leads / Cliques / Engajamento */}
+        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+          trafficOnly
+            ? "bg-amber-500/8 border-amber-500/25 text-amber-400"
+            : engageOnly
+            ? "bg-purple-500/8 border-purple-500/25 text-purple-400"
+            : "bg-blue-500/8 border-blue-500/25 text-blue-400"
+        }`}>
+          <Target size={9} />
+          {trafficOnly
+            ? `${fmtInt(data.traffic_clicks ?? 0)} cliques`
+            : engageOnly
+            ? `${fmtInt(data.engagements ?? 0)} interações`
+            : `${fmtInt(totalLeads)} leads`}
+        </span>
+
+        {/* CPL — só se tiver leads reais */}
+        {hasLeads && (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/8 border border-emerald-500/25 text-emerald-400">
+            <Zap size={9} />
+            CPL {symbol} {fmt(data.cpl)}
           </span>
-        </span>
-        {cplLabel && (
-          <>
-            <span className="text-[#2e2c29]">·</span>
-            <span className="text-[9px] font-semibold text-[#4a4844]">
-              CPL: <span className="text-[#7a7268]">{symbol} {fmt(data.cpl)}</span>
-            </span>
-          </>
         )}
+
         {hasTooltip && (
-          <span className="text-[8px] text-[#3a3835] leading-none">▾</span>
+          <span className="text-[8px] text-[#3a3835] leading-none select-none">▾</span>
         )}
       </div>
 
@@ -1292,7 +1289,6 @@ function ClientCard({ client, onSelect, onEdit, onDeactivate, onDelete, onToggle
           <span className={`inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border ${st.badge}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`}/>{st.label}
           </span>
-          <MetaSummary data={metaData} />
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <ClientActionMenu onEdit={onEdit} onDeactivate={onDeactivate} onDelete={onDelete} isInactive={isInactive}/>
@@ -1305,6 +1301,7 @@ function ClientCard({ client, onSelect, onEdit, onDeactivate, onDelete, onToggle
           </span>
         )):<span className="text-[#7a7268] text-xs italic">Nenhuma plataforma</span>}
       </div>
+      <MetaSummary data={metaData} />
       <div className="flex items-center gap-2 flex-wrap border-t border-[#2e2c29]/50 pt-2">
         <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#201f1d] border border-[#2e2c29] text-[#7a7268]">
           <Layers size={10} /> {client.gestor}
