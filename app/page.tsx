@@ -2445,7 +2445,8 @@ export default function Home() {
   const [itemsPerPage, setItemsPerPage] = useState(10); // Padrão: 10 itens por página
 
   const [clientSearch, setClientSearch] = useState("");
-  const [gestorFilter, setGestorFilter] = useState("");
+  const [gestorFilter, setGestorFilter] = useState("");       // Gestor Estratégico
+  const [trafegoFilter, setTrafegoFilter] = useState("");     // Gestor de Tráfego (novo)
   const [statusFilter, setStatusFilter] = useState("todos");
   const [pendenciasFilter, setPendenciasFilter] = useState(false);
   const [metaInsights, setMetaInsights] = useState<Record<string, {
@@ -2638,7 +2639,7 @@ export default function Home() {
 
   const handleSelectOperacao = (op: Operacao) => {
     setOperacaoAtiva(op); setClienteAtivo(null);
-    setClientSearch(""); setGestorFilter(""); setOpDropdownOpen(false);
+    setClientSearch(""); setGestorFilter(""); setTrafegoFilter(""); setOpDropdownOpen(false);
     fetchClientes(op.id);
   };
 
@@ -2852,7 +2853,8 @@ export default function Home() {
       const filtered = sorted.filter(c => {
         const matchSearch = !clientSearch||c.nome.toLowerCase().includes(clientSearch.toLowerCase());
         const matchGestor = !gestorFilter||c.gestor_estrategico===gestorFilter;
-        return matchSearch && matchGestor;
+        const matchTrafego = !trafegoFilter||c.gestor===trafegoFilter;
+        return matchSearch && matchGestor && matchTrafego;
       });
       const reordered = [...filtered];
       const [moved] = reordered.splice(source.index,1);
@@ -2865,7 +2867,7 @@ export default function Home() {
       return updated;
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientSearch, gestorFilter]);
+  }, [clientSearch, gestorFilter, trafegoFilter]);
 
   const handleAddEstrat = async (nome: string) => {
     try { const { error } = await supabase.from("gestores").insert({nome,tipo:"estrategico"}); if (error) throw error; setGestoresEstrat(prev=>[...prev,nome]); }
@@ -2932,20 +2934,22 @@ export default function Home() {
   // Dashboard usa o mesmo set filtrado
   const filteredDashboardLeads = filteredLeads;
 
-  const platOptions   = [...new Set(allLeadsForDashboard.map(l=>l.plataforma).filter(Boolean))].sort();
-  const gestorOptions = [...new Set(clientes.map(c=>c.gestor_estrategico).filter(Boolean))].sort();
+  const platOptions    = [...new Set(allLeadsForDashboard.map(l=>l.plataforma).filter(Boolean))].sort();
+  // Gestores estratégicos presentes nos clientes da operação
+  const gestorOptions  = [...new Set(clientes.map(c=>c.gestor_estrategico).filter(Boolean))].sort();
+  // Gestores de tráfego presentes nos clientes da operação (fonte: campo `gestor`)
+  const trafegoOptions = [...new Set(clientes.map(c=>c.gestor).filter(Boolean))].sort();
 
   const filteredClientes = clientes.filter(c => {
-    // 1. Regra da Busca (Nome)
+    // 1. Busca por nome
     const matchSearch = !clientSearch || (c.nome || "").toLowerCase().includes(clientSearch.toLowerCase());
-    
-    // 2. Regra do Gestor
+    // 2. Gestor Estratégico
     const matchGestor = !gestorFilter || c.gestor_estrategico === gestorFilter;
-    
-    // 3. Regra do Status (O SEGREDO ESTAVA AQUI)
+    // 3. Gestor de Tráfego (novo filtro cruzado)
+    const matchTrafego = !trafegoFilter || c.gestor === trafegoFilter;
+    // 4. Status
     const isInactive = isClienteInativo(c);
-    const hasAnyCampaign = c.platforms && c.platforms.length > 0; // Agora ele lê o seu banco do jeito certo!
-    
+    const hasAnyCampaign = c.platforms && c.platforms.length > 0;
     let matchStatus = true;
     if (statusFilter === "ativos") {
       matchStatus = !isInactive && hasAnyCampaign;
@@ -2954,11 +2958,10 @@ export default function Home() {
     } else if (statusFilter === "cancelados") {
       matchStatus = isInactive;
     }
-
-    // 4. Filtro de Pendências
+    // 5. Pendências de pagamento
     const matchPendencia = !pendenciasFilter || c.alerta_pagamento === true;
 
-    return matchSearch && matchGestor && matchStatus && matchPendencia;
+    return matchSearch && matchGestor && matchTrafego && matchStatus && matchPendencia;
   })
     .sort((a,b) => {
       const aInactive = isClienteInativo(a);
@@ -3240,59 +3243,131 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row flex-wrap items-center gap-3 w-full mb-6">
-              {/* Busca — ocupa linha inteira no mobile, flex-1 no desktop */}
-              <div className="relative w-full sm:flex-1">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#7a7268] pointer-events-none select-none" />
-                <input type="text" value={clientSearch} onChange={e=>setClientSearch(e.target.value)}
-                  placeholder="Buscar cliente por nome..."
-                  className="w-full bg-[#201f1d] border border-[#2e2c29] rounded-xl pl-10 pr-4 py-2.5 text-sm text-[#e8e2d8] placeholder:text-[#7a7268] outline-none focus:border-amber-500/60 transition-colors"/>
+            <div className="flex flex-col gap-2 w-full mb-6">
+              {/* ── Linha 1: Busca + Gestor de Tráfego + Gestor Estratégico ── */}
+              <div className="flex flex-col sm:flex-row flex-wrap items-center gap-2 w-full">
+                {/* Busca por nome */}
+                <div className="relative w-full sm:flex-1 min-w-0">
+                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#7a7268] pointer-events-none select-none" />
+                  <input
+                    type="text"
+                    value={clientSearch}
+                    onChange={e => setClientSearch(e.target.value)}
+                    placeholder="Buscar cliente por nome..."
+                    className="w-full bg-[#201f1d] border border-[#2e2c29] rounded-xl pl-9 pr-4 py-2.5 text-sm text-[#e8e2d8] placeholder:text-[#7a7268] outline-none focus:border-amber-500/60 transition-colors"
+                  />
+                </div>
+
+                {/* Gestor de Tráfego (novo) */}
+                <div className="relative w-full sm:w-44">
+                  <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
+                    <Layers size={13} className={trafegoFilter ? "text-amber-400" : "text-[#4a4844]"} />
+                  </div>
+                  <select
+                    value={trafegoFilter}
+                    onChange={e => setTrafegoFilter(e.target.value)}
+                    className={`w-full appearance-none rounded-xl pl-8 pr-8 py-2.5 text-sm outline-none transition-colors cursor-pointer border ${
+                      trafegoFilter
+                        ? "bg-amber-500/8 border-amber-500/40 text-amber-300 focus:border-amber-500/70"
+                        : "bg-[#201f1d] border-[#2e2c29] text-[#e8e2d8] focus:border-amber-500/60"
+                    }`}
+                  >
+                    <option value="">Gestor de Tráfego</option>
+                    {trafegoOptions.map(g => <option key={g} value={g}>{g}</option>)}
+                  </select>
+                  <ChevronDown size={13} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#7a7268]" />
+                </div>
+
+                {/* Gestor Estratégico */}
+                <div className="relative w-full sm:w-44">
+                  <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
+                    <User size={13} className={gestorFilter ? "text-amber-400" : "text-[#4a4844]"} />
+                  </div>
+                  <select
+                    value={gestorFilter}
+                    onChange={e => setGestorFilter(e.target.value)}
+                    className={`w-full appearance-none rounded-xl pl-8 pr-8 py-2.5 text-sm outline-none transition-colors cursor-pointer border ${
+                      gestorFilter
+                        ? "bg-amber-500/8 border-amber-500/40 text-amber-300 focus:border-amber-500/70"
+                        : "bg-[#201f1d] border-[#2e2c29] text-[#e8e2d8] focus:border-amber-500/60"
+                    }`}
+                  >
+                    <option value="">Gestor Estratégico</option>
+                    {gestorOptions.map(g => <option key={g} value={g}>{g}</option>)}
+                  </select>
+                  <ChevronDown size={13} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#7a7268]" />
+                </div>
+
+                {/* Status */}
+                <div className="relative w-full sm:w-44">
+                  <select
+                    value={statusFilter}
+                    onChange={e => setStatusFilter(e.target.value)}
+                    className="w-full appearance-none bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 pr-9 py-2.5 text-sm text-[#e8e2d8] outline-none focus:border-amber-500/60 transition-colors cursor-pointer"
+                  >
+                    <option value="todos">Todos os status</option>
+                    <option value="ativos">Ativos</option>
+                    <option value="sem_camp">Pausados/Sem Camp.</option>
+                    <option value="cancelados">Cancelados</option>
+                  </select>
+                  <ChevronDown size={13} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#7a7268]" />
+                </div>
               </div>
 
-              {/* -- FILTRO DE GESTOR -- */}
-              <div className="relative w-full sm:w-48">
-                <select value={gestorFilter} onChange={e=>setGestorFilter(e.target.value)}
-                  className="w-full appearance-none bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 pr-10 py-2.5 text-sm text-[#e8e2d8] outline-none focus:border-amber-500/60 transition-colors cursor-pointer">
-                  <option value="">Todos os gestores</option>
-                  {gestorOptions.map(g=><option key={g} value={g}>{g}</option>)}
-                </select>
-                <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#7a7268]" />
-              </div>
-
-              {/* -- FILTRO DE STATUS -- */}
-              <div className="relative w-full sm:w-48">
-                <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}
-                  className="w-full appearance-none bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 pr-10 py-2.5 text-sm text-[#e8e2d8] outline-none focus:border-amber-500/60 transition-colors cursor-pointer">
-                  <option value="todos">Todos os status</option>
-                  <option value="ativos">Ativos</option>
-                  <option value="sem_camp">Pausados/Sem Camp.</option>
-                  <option value="cancelados">Cancelados</option>
-                </select>
-                <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#7a7268]" />
-              </div>
-
-              {/* -- Linha de controles: Ordenação + View toggle (lado a lado no mobile) -- */}
-              <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-start">
-                <button
-                  onClick={()=>setSortMode(m=>m==="alfabetica"?"personalizada":"alfabetica")}
-                  className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border text-xs font-semibold transition-all ${
-                    sortMode==="personalizada"
-                      ?"bg-amber-500/10 border-amber-500/40 text-amber-400 hover:bg-amber-500/20"
-                      :"bg-[#201f1d] border-[#2e2c29] text-[#7a7268] hover:text-[#e8e2d8] hover:border-[#7a7268]"
-                  }`}>
-                  {sortMode==="alfabetica" ? (
-                    <><svg width="14" height="14" viewBox="0 0 28 16" fill="currentColor"><text x="0" y="13" fontSize="13" fontWeight="bold">AZ</text></svg><span>A-Z</span></>
-                  ) : (
-                    <><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><line x1="8" y1="2" x2="8" y2="14"/><polyline points="4,6 8,2 12,6"/><polyline points="4,10 8,14 12,10" opacity="0.5"/></svg><span>Ordem</span></>
-                  )}
-                </button>
-                <div className="flex items-center bg-[#201f1d] border border-[#2e2c29] rounded-xl p-1">
-                  {([["grid","M 0 0 h7v7H0z M9 0h7v7H9z M0 9h7v7H0z M9 9h7v7H9z"],["list","M0 1h16v2.5H0z M0 6.75h16V9.25H0z M0 12.5h16V15H0z"]] as [ViewMode,string][]).map(([v,d])=>(
-                    <button key={v} onClick={()=>setViewMode(v)}
-                      className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all ${viewMode===v?"bg-amber-500 text-[#111]":"text-[#7a7268] hover:text-[#e8e2d8]"}`}>
-                      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d={d}/></svg>
+              {/* ── Linha 2: Ordenação + View toggle + badges de filtros ativos ── */}
+              <div className="flex items-center justify-between gap-2 w-full">
+                {/* Badges de filtros ativos */}
+                <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                  {trafegoFilter && (
+                    <button
+                      onClick={() => setTrafegoFilter("")}
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-semibold hover:bg-amber-500/20 transition-colors"
+                    >
+                      <Layers size={9} /> {trafegoFilter} <X size={9} />
                     </button>
-                  ))}
+                  )}
+                  {gestorFilter && (
+                    <button
+                      onClick={() => setGestorFilter("")}
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-semibold hover:bg-amber-500/20 transition-colors"
+                    >
+                      <User size={9} /> {gestorFilter} <X size={9} />
+                    </button>
+                  )}
+                  {(trafegoFilter || gestorFilter) && (
+                    <button
+                      onClick={() => { setTrafegoFilter(""); setGestorFilter(""); setClientSearch(""); setStatusFilter("todos"); }}
+                      className="text-[10px] text-[#4a4844] hover:text-red-400 font-semibold transition-colors px-1"
+                    >
+                      Limpar tudo
+                    </button>
+                  )}
+                </div>
+
+                {/* Ordenação + View toggle */}
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => setSortMode(m => m === "alfabetica" ? "personalizada" : "alfabetica")}
+                    className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-all ${
+                      sortMode === "personalizada"
+                        ? "bg-amber-500/10 border-amber-500/40 text-amber-400 hover:bg-amber-500/20"
+                        : "bg-[#201f1d] border-[#2e2c29] text-[#7a7268] hover:text-[#e8e2d8] hover:border-[#7a7268]"
+                    }`}
+                  >
+                    {sortMode === "alfabetica" ? (
+                      <><svg width="14" height="14" viewBox="0 0 28 16" fill="currentColor"><text x="0" y="13" fontSize="13" fontWeight="bold">AZ</text></svg><span>A-Z</span></>
+                    ) : (
+                      <><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><line x1="8" y1="2" x2="8" y2="14"/><polyline points="4,6 8,2 12,6"/><polyline points="4,10 8,14 12,10" opacity="0.5"/></svg><span>Ordem</span></>
+                    )}
+                  </button>
+                  <div className="flex items-center bg-[#201f1d] border border-[#2e2c29] rounded-xl p-1">
+                    {([["grid","M 0 0 h7v7H0z M9 0h7v7H9z M0 9h7v7H0z M9 9h7v7H9z"],["list","M0 1h16v2.5H0z M0 6.75h16V9.25H0z M0 12.5h16V15H0z"]] as [ViewMode,string][]).map(([v,d])=>(
+                      <button key={v} onClick={() => setViewMode(v)}
+                        className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all ${viewMode===v ? "bg-amber-500 text-[#111]" : "text-[#7a7268] hover:text-[#e8e2d8]"}`}>
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d={d}/></svg>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
@@ -3305,7 +3380,7 @@ export default function Home() {
               <div className="flex flex-col items-center justify-center py-20 gap-3 rounded-xl border border-dashed border-[#2e2c29]">
                 <span className="text-4xl text-[#2e2c29] opacity-30"><FileText size={48} /></span>
                 <p className="text-[#7a7268] text-sm text-center px-4">
-                  {clientSearch||gestorFilter?"Nenhum cliente encontrado.":"Nenhum cliente cadastrado. Clique em '+ Novo Cliente'."}
+                  {clientSearch || gestorFilter || trafegoFilter ? "Nenhum cliente encontrado com esses filtros." : "Nenhum cliente cadastrado. Clique em '+ Novo Cliente'."}
                 </p>
               </div>
             ) : viewMode==="grid" ? (
