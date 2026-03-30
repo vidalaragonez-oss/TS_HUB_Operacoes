@@ -66,7 +66,7 @@ interface GestorPerfil {
   id: string;
   nome: string;
   role: "admin" | "gestor";
-  operacao_id: string | null;
+  operacao_id: string[] | null;
   user_id: string;
 }
 
@@ -377,8 +377,162 @@ function exportCSV(leads: Lead[], clienteNome: string) {
   toast.success("CSV exportado!");
 }
 
-async function exportPDF(leads: Lead[], clienteNome: string, operacaoNome: string) {
-  if (!leads.length) { toast.error("Nenhum lead para exportar."); return; }
+// ─── Tipos para exportação de performance ─────────────────────────────────────
+
+interface PdfExportOptions {
+  includeDashboard: boolean;
+  includeRadar: boolean;
+  includeLeads: boolean;
+}
+
+interface RadarCampaignRow {
+  campaign_name: string;
+  objective_label: string;
+  spend: string;
+  form_leads: number;
+  msg_leads: number;
+  form_cpl: number;
+  msg_cpl: number;
+}
+
+interface RadarSnapshot {
+  spend: number;
+  cpl: number;
+  total_leads: number;
+  currency: string;
+  campaigns: RadarCampaignRow[];
+}
+
+interface DashboardSnapshot {
+  leadsPorPlataforma: { name: string; value: number }[];
+  leadsPorData: { data: string; leads: number }[];
+  totalLeads: number;
+}
+
+// ─── Modal de seleção de conteúdo do PDF ──────────────────────────────────────
+
+function ExportPDFModal({
+  open,
+  hasRadar,
+  onConfirm,
+  onClose,
+}: {
+  open: boolean;
+  hasRadar: boolean;
+  onConfirm: (opts: PdfExportOptions) => void;
+  onClose: () => void;
+}) {
+  const [opts, setOpts] = useState<PdfExportOptions>({
+    includeDashboard: true,
+    includeRadar: hasRadar,
+    includeLeads: true,
+  });
+  const [exporting, setExporting] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setOpts({ includeDashboard: true, includeRadar: hasRadar, includeLeads: true });
+      setExporting(false);
+    }
+  }, [open, hasRadar]);
+
+  if (!open) return null;
+
+  const toggle = (k: keyof PdfExportOptions) =>
+    setOpts(prev => ({ ...prev, [k]: !prev[k] }));
+
+  const noneSelected = !opts.includeDashboard && !opts.includeRadar && !opts.includeLeads;
+
+  return (
+    <div
+      className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center"
+      style={{ backgroundColor: "rgba(0,0,0,0.75)", backdropFilter: "blur(6px)" }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="w-full sm:max-w-sm bg-[#1a1917] border border-[#2e2c29] rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#2e2c29] bg-[#111010]">
+          <div>
+            <p className="text-[9px] font-bold uppercase tracking-widest text-amber-500 mb-0.5">Exportar</p>
+            <h2 className="text-sm font-bold text-[#e8e2d8] flex items-center gap-2">
+              <FileText size={14} className="text-amber-500" /> Relatório de Performance
+            </h2>
+          </div>
+          <button onClick={onClose}
+            className="w-8 h-8 flex items-center justify-center rounded-xl bg-[#201f1d] border border-[#2e2c29] text-[#7a7268] hover:text-[#e8e2d8] transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="px-5 py-5 space-y-3">
+          <p className="text-[10px] text-[#7a7268]">Selecione o que incluir no PDF:</p>
+
+          {([
+            { key: "includeDashboard" as const, label: "Resumo do Dashboard", desc: "Totais por plataforma e gráfico de leads por dia" },
+            ...(hasRadar ? [{ key: "includeRadar" as const, label: "Radar Meta Ads", desc: "Tabela de campanhas com gasto, leads e CPL" }] : []),
+            { key: "includeLeads" as const, label: "Lista Detalhada de Leads", desc: "Tabela completa com nome, telefone, data e plataforma" },
+          ]).map(item => (
+            <button key={item.key} type="button" onClick={() => toggle(item.key)}
+              className={`w-full flex items-start gap-3 px-4 py-3 rounded-xl border transition-all text-left ${
+                opts[item.key]
+                  ? "border-amber-500/40 bg-amber-500/5"
+                  : "border-[#2e2c29] bg-[#201f1d] hover:border-[#3a3835]"
+              }`}>
+              <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
+                opts[item.key] ? "bg-amber-500 border-amber-500" : "border-[#3a3835]"
+              }`}>
+                {opts[item.key] && <Check size={10} className="text-[#111] stroke-[3]" />}
+              </div>
+              <div>
+                <p className={`text-xs font-semibold transition-colors ${opts[item.key] ? "text-[#e8e2d8]" : "text-[#7a7268]"}`}>
+                  {item.label}
+                </p>
+                <p className="text-[10px] text-[#4a4844] mt-0.5">{item.desc}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        {/* Footer */}
+        <div className="px-5 pb-5 flex gap-3">
+          <button onClick={onClose}
+            className="flex-1 py-2.5 rounded-xl bg-[#201f1d] border border-[#2e2c29] text-[#7a7268] text-xs font-semibold hover:text-[#e8e2d8] transition-colors">
+            Cancelar
+          </button>
+          <button
+            disabled={noneSelected || exporting}
+            onClick={async () => { setExporting(true); await onConfirm(opts); setExporting(false); onClose(); }}
+            className="flex-1 py-2.5 rounded-xl bg-amber-500 text-[#111] text-xs font-bold hover:bg-amber-400 active:scale-95 transition-all disabled:opacity-40 disabled:pointer-events-none flex items-center justify-center gap-2 shadow-[0_2px_12px_rgba(245,166,35,0.3)]">
+            {exporting
+              ? <><Loader2 size={12} className="animate-spin" /> Gerando...</>
+              : <><Download size={12} /> Gerar PDF</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── exportPDF refatorado — Relatório de Performance ─────────────────────────
+
+async function exportPDF(
+  leads: Lead[],
+  clienteNome: string,
+  operacaoNome: string,
+  opts: PdfExportOptions,
+  periodLabel: string,
+  dashboard: DashboardSnapshot | null,
+  radar: RadarSnapshot | null,
+) {
+  if (!opts.includeLeads && !opts.includeDashboard && !opts.includeRadar) {
+    toast.error("Selecione ao menos uma seção para exportar.");
+    return;
+  }
+  if (opts.includeLeads && !leads.length) {
+    toast.error("Nenhum lead encontrado para o período selecionado.");
+    return;
+  }
 
   const { default: jsPDF } = await import("jspdf");
   const { default: autoTable } = await import("jspdf-autotable");
@@ -386,214 +540,284 @@ async function exportPDF(leads: Lead[], clienteNome: string, operacaoNome: strin
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
-  const now = new Date().toLocaleDateString("pt-BR", {
-    day: "2-digit", month: "2-digit", year: "numeric"
-  });
+  const now = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const fmt2 = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const symbol = radar && radar.currency === "USD" ? "$" : "R$";
 
-  // ─── HELPERS ───────────────────────────────────────────────────────────────
+  // ─── HELPERS ──────────────────────────────────────────────────────────────
 
   const drawPageHeader = () => {
     doc.setFillColor(17, 16, 16);
     doc.rect(0, 0, pageW, 22, "F");
-
     doc.setFillColor(245, 166, 35);
     doc.rect(0, 22, pageW, 0.6, "F");
-
-    doc.setFillColor(245, 166, 35);
     doc.rect(0, 0, 3, 22, "F");
-
     doc.setTextColor(245, 166, 35);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(13);
     doc.text("TS HUB", 8, 10);
-
     doc.setTextColor(80, 78, 75);
     doc.setFontSize(13);
     doc.text("·", 31, 10);
-
     doc.setTextColor(232, 226, 216);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
     doc.text(clienteNome.toUpperCase(), 36, 10);
-
     doc.setTextColor(110, 106, 100);
     doc.setFontSize(7);
     doc.text(`OPERAÇÃO: ${operacaoNome.toUpperCase()}`, 8, 17);
-    doc.text(`TOTAL: ${leads.length} LEADS`, 80, 17);
-
-    doc.setTextColor(110, 106, 100);
-    doc.setFontSize(7);
+    doc.text(`PERÍODO: ${periodLabel.toUpperCase()}`, 80, 17);
     doc.text(`GERADO EM: ${now}`, pageW - 8, 17, { align: "right" });
   };
 
-  const drawBadge = (
-    x: number, y: number, label: string,
-    bgR: number, bgG: number, bgB: number,
-    textR = 255, textG = 255, textB = 255
-  ) => {
-    const badgeW = 30;
-    const badgeH = 5;
-    const radius = 1.5;
+  const drawFooter = () => {
+    const pg = (doc.internal as any).getCurrentPageInfo?.()?.pageNumber ?? "–";
+    doc.setFontSize(6.5);
+    doc.setTextColor(180, 177, 173);
+    doc.text(`TS HUB  ·  CONFIDENCIAL  ·  PÁGINA ${pg}`, pageW / 2, pageH - 5, { align: "center" });
+  };
 
+  const drawBadge = (x: number, y: number, label: string, bgR: number, bgG: number, bgB: number, tR = 255, tG = 255, tB = 255) => {
     doc.setFillColor(bgR, bgG, bgB);
-    doc.roundedRect(x, y - 3.5, badgeW, badgeH, radius, radius, "F");
-
-    doc.setTextColor(textR, textG, textB);
+    doc.roundedRect(x, y - 3.5, 30, 5, 1.5, 1.5, "F");
+    doc.setTextColor(tR, tG, tB);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(6);
-    doc.text(label.toUpperCase(), x + badgeW / 2, y - 0.5, { align: "center" });
+    doc.text(label.toUpperCase(), x + 15, y - 0.5, { align: "center" });
   };
 
   const getBadgeColors = (plataforma: string): [number, number, number, number, number, number] => {
     const p = (plataforma || "").toLowerCase();
-    if (p.includes("google"))    return [52, 168, 83,   255, 255, 255];
+    if (p.includes("google"))    return [52, 168, 83, 255, 255, 255];
     if (p.includes("meta") || p.includes("facebook")) return [24, 119, 242, 255, 255, 255];
-    if (p.includes("instagram")) return [193, 53, 132,  255, 255, 255];
-    if (p.includes("tiktok"))    return [0, 0, 0,        255, 255, 255];
-    if (p.includes("linkedin"))  return [0, 119, 181,   255, 255, 255];
     return [80, 78, 75, 200, 198, 195];
   };
 
-  // ─── PÁGINA 01: CAPA PREMIUM ───────────────────────────────────────────────
+  // ─── CAPA ─────────────────────────────────────────────────────────────────
 
   doc.setFillColor(17, 16, 16);
   doc.rect(0, 0, pageW, pageH, "F");
-
   doc.setFillColor(245, 166, 35);
   doc.rect(0, 0, 4, pageH, "F");
-
   doc.setFillColor(40, 38, 35);
   doc.rect(20, pageH / 2 - 22, pageW - 40, 0.4, "F");
   doc.rect(20, pageH / 2 + 18, pageW - 40, 0.4, "F");
-
   doc.setTextColor(245, 166, 35);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(30);
-  doc.text("RELATÓRIO DE LEADS", 20, pageH / 2 - 8);
-
+  doc.setFontSize(28);
+  doc.text("RELATÓRIO DE PERFORMANCE", 20, pageH / 2 - 8);
   doc.setTextColor(232, 226, 216);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(17);
   doc.text(clienteNome.toUpperCase(), 20, pageH / 2 + 6);
-
   doc.setFontSize(8);
   doc.setTextColor(80, 78, 75);
-  doc.text(`OPERAÇÃO: ${operacaoNome}  ·  ${leads.length} LEADS REGISTRADOS  ·  ${now}`, 20, pageH - 18);
+  const sections = [
+    opts.includeDashboard && "Dashboard",
+    opts.includeRadar && radar && "Radar Meta Ads",
+    opts.includeLeads && `${leads.length} Leads`,
+  ].filter(Boolean).join("  ·  ");
+  doc.text(`${sections}  ·  PERÍODO: ${periodLabel}  ·  ${now}`, 20, pageH - 18);
   doc.text("TS HUB  •  SISTEMA DE GESTÃO E PERFORMANCE", pageW - 20, pageH - 18, { align: "right" });
 
-  // ─── PÁGINA 02 EM DIANTE: TABELA DE DADOS ─────────────────────────────────
+  // ─── SEÇÃO: DASHBOARD ──────────────────────────────────────────────────────
 
-  doc.addPage();
-  drawPageHeader();
+  if (opts.includeDashboard && dashboard) {
+    doc.addPage();
+    drawPageHeader();
 
-  autoTable(doc, {
-    startY: 28,
-    margin: { left: 10, right: 10 },
-    tableWidth: pageW - 20,
+    let y = 32;
+    doc.setFillColor(245, 166, 35);
+    doc.rect(10, y, pageW - 20, 0.4, "F");
+    y += 5;
+    doc.setTextColor(245, 166, 35);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.text("RESUMO DO PERÍODO", 10, y);
+    y += 6;
 
-    head: [["#", "NOME", "EMAIL", "TELEFONE", "DATA", "PLATAFORMA"]],
+    // Cards totais
+    const cardW = (pageW - 20) / 3 - 3;
+    const cardH = 18;
+    const cardItems = [
+      { label: "TOTAL DE LEADS", value: String(dashboard.totalLeads) },
+      { label: "PLATAFORMA CAMPEÃ", value: dashboard.leadsPorPlataforma[0]?.name ?? "—" },
+      { label: "LEADS NESSE PERÍODO", value: `${dashboard.totalLeads} lead${dashboard.totalLeads !== 1 ? "s" : ""}` },
+    ];
+    cardItems.forEach((card, i) => {
+      const cx = 10 + i * (cardW + 3);
+      doc.setFillColor(26, 25, 23);
+      doc.roundedRect(cx, y, cardW, cardH, 2, 2, "F");
+      doc.setTextColor(120, 116, 110);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(6.5);
+      doc.text(card.label, cx + 4, y + 5);
+      doc.setTextColor(232, 226, 216);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.text(card.value, cx + 4, y + 13);
+    });
+    y += cardH + 6;
 
-    body: leads.map((l, i) => [
-      i + 1,
-      l.nome      || "Não Identificado",
-      l.email     || "—",
-      l.telefone  || "—",
-      l.data      || "—",
-      l.plataforma || "—"
-    ]),
+    // Tabela: leads por plataforma
+    autoTable(doc, {
+      startY: y,
+      margin: { left: 10, right: pageW / 2 + 3 },
+      head: [["PLATAFORMA", "LEADS", "%"]],
+      body: dashboard.leadsPorPlataforma.map(p => [
+        p.name,
+        p.value,
+        `${Math.round((p.value / dashboard.totalLeads) * 100)}%`,
+      ]),
+      styles: { font: "helvetica", fontSize: 8, cellPadding: { top: 3, bottom: 3, left: 4, right: 4 }, textColor: [40, 38, 35], fillColor: [255, 255, 255] },
+      headStyles: { fillColor: [26, 26, 26], textColor: [245, 166, 35], fontStyle: "bold", fontSize: 7.5 },
+      alternateRowStyles: { fillColor: [249, 249, 249] },
+      columnStyles: { 1: { halign: "center" }, 2: { halign: "center" } },
+    });
 
-    styles: {
-      font: "helvetica",
-      fontSize: 8,
-      cellPadding: { top: 3.5, bottom: 3.5, left: 4, right: 4 },
-      textColor: [40, 38, 35],
-      fillColor: [255, 255, 255],
-      lineColor: [230, 228, 225],
-      lineWidth: 0,
-    },
+    // Tabela: leads por dia
+    const maxY = (doc as any).lastAutoTable?.finalY ?? y;
+    autoTable(doc, {
+      startY: y,
+      margin: { left: pageW / 2 + 3, right: 10 },
+      head: [["DIA", "LEADS"]],
+      body: dashboard.leadsPorData.map(d => [d.data, d.leads]),
+      styles: { font: "helvetica", fontSize: 8, cellPadding: { top: 3, bottom: 3, left: 4, right: 4 }, textColor: [40, 38, 35], fillColor: [255, 255, 255] },
+      headStyles: { fillColor: [26, 26, 26], textColor: [245, 166, 35], fontStyle: "bold", fontSize: 7.5 },
+      alternateRowStyles: { fillColor: [249, 249, 249] },
+      columnStyles: { 1: { halign: "center" } },
+    });
 
-    headStyles: {
-      fillColor: [26, 26, 26],
-      textColor: [245, 166, 35],
-      fontStyle: "bold",
-      fontSize: 7.5,
-      cellPadding: { top: 4, bottom: 4, left: 4, right: 4 },
-      lineWidth: 0,
-    },
+    drawFooter();
+  }
 
-    alternateRowStyles: {
-      fillColor: [249, 249, 249],
-    },
+  // ─── SEÇÃO: RADAR META ADS ─────────────────────────────────────────────────
 
-    columnStyles: {
-      0: { cellWidth: 10,  halign: "center", textColor: [160, 157, 153] },
-      1: { cellWidth: 48 },
-      2: { cellWidth: 58 },
-      3: { cellWidth: 40 },
-      4: { cellWidth: 25,  halign: "center" },
-      5: { cellWidth: 57,  halign: "center" },
-    },
+  if (opts.includeRadar && radar) {
+    doc.addPage();
+    drawPageHeader();
 
-    didParseCell: (data) => {
-      if (data.section !== "body") return;
+    let y = 32;
+    doc.setFillColor(24, 119, 242);
+    doc.rect(10, y, pageW - 20, 0.4, "F");
+    y += 5;
+    doc.setTextColor(24, 119, 242);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.text("RADAR META ADS", 10, y);
+    y += 7;
 
-      const raw = (data.cell.raw as string) || "";
-      const col = data.column.index;
+    // Totais
+    const totaisItems = [
+      { label: "GASTO TOTAL", value: `${symbol} ${fmt2(radar.spend)}` },
+      { label: "CPL MÉDIO",   value: radar.cpl > 0 ? `${symbol} ${fmt2(radar.cpl)}` : "—" },
+      { label: "TOTAL LEADS", value: String(radar.total_leads) },
+    ];
+    const tW = (pageW - 20) / 3 - 3;
+    totaisItems.forEach((item, i) => {
+      const cx = 10 + i * (tW + 3);
+      doc.setFillColor(17, 30, 51);
+      doc.roundedRect(cx, y, tW, 16, 2, 2, "F");
+      doc.setTextColor(100, 140, 200);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(6.5);
+      doc.text(item.label, cx + 4, y + 5);
+      doc.setTextColor(232, 226, 216);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.text(item.value, cx + 4, y + 13);
+    });
+    y += 22;
 
-      if (col === 1) {
-        const lower = raw.toLowerCase();
-        if (
-          lower.includes("não identificado") ||
-          lower.includes("nao identificado") ||
-          lower.includes("não qualificado") ||
-          lower.includes("nao qualificado")
-        ) {
+    // Tabela de campanhas
+    autoTable(doc, {
+      startY: y,
+      margin: { left: 10, right: 10 },
+      tableWidth: pageW - 20,
+      head: [["CAMPANHA", "OBJETIVO", "GASTO", "LEADS", "CPL"]],
+      body: radar.campaigns.map(c => {
+        const leads = c.form_leads + c.msg_leads;
+        const cpl = c.form_cpl || c.msg_cpl || 0;
+        return [
+          c.campaign_name,
+          c.objective_label || "—",
+          `${symbol} ${parseFloat(c.spend).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`,
+          leads > 0 ? String(leads) : "—",
+          leads > 0 && cpl > 0 ? `${symbol} ${fmt2(cpl)}` : "—",
+        ];
+      }),
+      styles: { font: "helvetica", fontSize: 8, cellPadding: { top: 3.5, bottom: 3.5, left: 4, right: 4 }, textColor: [40, 38, 35], fillColor: [255, 255, 255] },
+      headStyles: { fillColor: [17, 30, 51], textColor: [100, 160, 240], fontStyle: "bold", fontSize: 7.5 },
+      alternateRowStyles: { fillColor: [249, 249, 249] },
+      columnStyles: {
+        0: { cellWidth: "auto" },
+        1: { cellWidth: 30, halign: "center" },
+        2: { cellWidth: 28, halign: "right" },
+        3: { cellWidth: 16, halign: "center" },
+        4: { cellWidth: 28, halign: "right" },
+      },
+      foot: [[
+        "TOTAL", "",
+        `${symbol} ${fmt2(radar.spend)}`,
+        radar.total_leads > 0 ? String(radar.total_leads) : "—",
+        radar.cpl > 0 ? `${symbol} ${fmt2(radar.cpl)}` : "—",
+      ]],
+      footStyles: { fillColor: [26, 26, 26], textColor: [245, 166, 35], fontStyle: "bold", fontSize: 7.5, halign: "right" },
+      didDrawPage: drawFooter,
+    });
+  }
+
+  // ─── SEÇÃO: LISTA DE LEADS ─────────────────────────────────────────────────
+
+  if (opts.includeLeads && leads.length) {
+    doc.addPage();
+    drawPageHeader();
+
+    autoTable(doc, {
+      startY: 28,
+      margin: { left: 10, right: 10 },
+      tableWidth: pageW - 20,
+      head: [["#", "NOME", "EMAIL", "TELEFONE", "DATA", "PLATAFORMA"]],
+      body: leads.map((l, i) => [i + 1, l.nome || "Não Identificado", l.email || "—", l.telefone || "—", l.data || "—", l.plataforma || "—"]),
+      styles: { font: "helvetica", fontSize: 8, cellPadding: { top: 3.5, bottom: 3.5, left: 4, right: 4 }, textColor: [40, 38, 35], fillColor: [255, 255, 255], lineWidth: 0 },
+      headStyles: { fillColor: [26, 26, 26], textColor: [245, 166, 35], fontStyle: "bold", fontSize: 7.5, lineWidth: 0 },
+      alternateRowStyles: { fillColor: [249, 249, 249] },
+      columnStyles: {
+        0: { cellWidth: 10, halign: "center", textColor: [160, 157, 153] },
+        1: { cellWidth: 48 },
+        2: { cellWidth: 58 },
+        3: { cellWidth: 40 },
+        4: { cellWidth: 25, halign: "center" },
+        5: { cellWidth: 57, halign: "center" },
+      },
+      didParseCell: (data) => {
+        if (data.section !== "body") return;
+        const raw = (data.cell.raw as string) || "";
+        if (data.column.index === 1 && (raw.toLowerCase().includes("não identificado") || raw.toLowerCase().includes("nao identificado"))) {
           data.cell.styles.textColor = [170, 167, 163];
           data.cell.styles.fontStyle = "italic";
         }
-      }
+        if (data.column.index === 5) data.cell.styles.textColor = [255, 255, 255];
+      },
+      didDrawCell: (data) => {
+        if (data.section !== "body" || data.column.index !== 5) return;
+        const raw = (data.cell.raw as string) || "—";
+        if (raw === "—") return;
+        const [bgR, bgG, bgB, tR, tG, tB] = getBadgeColors(raw);
+        drawBadge(data.cell.x + (data.cell.width - 30) / 2, data.cell.y + data.cell.height / 2 + 2, raw, bgR, bgG, bgB, tR, tG, tB);
+      },
+      didDrawPage: drawFooter,
+    });
+  }
 
-      if (col === 5) {
-        data.cell.styles.textColor = [255, 255, 255];
-      }
-    },
+  const suffix = [
+    opts.includeDashboard && "dash",
+    opts.includeRadar && radar && "radar",
+    opts.includeLeads && "leads",
+  ].filter(Boolean).join("-");
 
-    didDrawCell: (data) => {
-      if (data.section !== "body" || data.column.index !== 5) return;
-
-      const raw = (data.cell.raw as string) || "—";
-      if (raw === "—") return;
-
-      const [bgR, bgG, bgB, tR, tG, tB] = getBadgeColors(raw);
-      const cx = data.cell.x + (data.cell.width - 30) / 2;
-      const cy = data.cell.y + data.cell.height / 2;
-
-      drawBadge(cx, cy + 2, raw, bgR, bgG, bgB, tR, tG, tB);
-    },
-
-    didDrawPage: () => {
-      drawPageHeader();
-
-      const totalPages = (doc.internal as any).getNumberOfPages
-        ? (doc.internal as any).getNumberOfPages()
-        : "–";
-      const currentPage = (doc.internal as any).getCurrentPageInfo
-        ? (doc.internal as any).getCurrentPageInfo().pageNumber
-        : "–";
-
-      doc.setFontSize(6.5);
-      doc.setTextColor(180, 177, 173);
-      doc.text(
-        `TS HUB  ·  CONFIDENCIAL  ·  PÁGINA ${currentPage}`,
-        pageW / 2,
-        pageH - 5,
-        { align: "center" }
-      );
-    },
-  });
-
-  doc.save(`leads_${clienteNome.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.pdf`);
-  toast.success("Relatório Premium exportado com sucesso!");
+  doc.save(`relatorio_${clienteNome.replace(/\s+/g, "_")}_${suffix}_${new Date().toISOString().slice(0, 10)}.pdf`);
+  toast.success("Relatório de Performance exportado!");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -678,20 +902,42 @@ function Dropzone({ onParsed }: { onParsed: (leads: Lead[]) => void }) {
 // EXPORT BAR
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function ExportBar({ leads, clienteNome, operacaoNome, onNewLead }: { leads:Lead[]; clienteNome:string; operacaoNome:string; onNewLead:()=>void }) {
-  const [exporting, setExporting] = useState(false);
+function ExportBar({
+  leads, clienteNome, operacaoNome, onNewLead,
+  periodLabel, dashboard, radar,
+}: {
+  leads: Lead[];
+  clienteNome: string;
+  operacaoNome: string;
+  onNewLead: () => void;
+  periodLabel: string;
+  dashboard: DashboardSnapshot | null;
+  radar: RadarSnapshot | null;
+}) {
+  const [pdfModalOpen, setPdfModalOpen] = useState(false);
+
   return (
-    <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-      <button onClick={()=>exportCSV(leads,clienteNome)}
-        className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#201f1d] border border-[#2e2c29] text-[#7a7268] text-xs font-semibold hover:text-[#e8e2d8] hover:border-[#7a7268] transition-colors w-full sm:w-auto">
-        <Download size={12} /> CSV
-      </button>
-      <button onClick={async()=>{setExporting(true);await exportPDF(leads,clienteNome,operacaoNome);setExporting(false);}} disabled={exporting}
-        className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#201f1d] border border-[#2e2c29] text-[#7a7268] text-xs font-semibold hover:text-[#e8e2d8] hover:border-[#7a7268] transition-colors disabled:opacity-40 w-full sm:w-auto">
-        {exporting ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-        {exporting ? "PDF..." : "PDF"}
-      </button>
-    </div>
+    <>
+      <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+        <button onClick={() => exportCSV(leads, clienteNome)}
+          className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#201f1d] border border-[#2e2c29] text-[#7a7268] text-xs font-semibold hover:text-[#e8e2d8] hover:border-[#7a7268] transition-colors w-full sm:w-auto">
+          <Download size={12} /> CSV
+        </button>
+        <button onClick={() => setPdfModalOpen(true)}
+          className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#201f1d] border border-[#2e2c29] text-[#7a7268] text-xs font-semibold hover:text-[#e8e2d8] hover:border-[#7a7268] transition-colors w-full sm:w-auto">
+          <Download size={12} /> PDF
+        </button>
+      </div>
+
+      <ExportPDFModal
+        open={pdfModalOpen}
+        hasRadar={!!radar && (radar.campaigns?.length ?? 0) > 0}
+        onClose={() => setPdfModalOpen(false)}
+        onConfirm={async (opts) => {
+          await exportPDF(leads, clienteNome, operacaoNome, opts, periodLabel, dashboard, radar);
+        }}
+      />
+    </>
   );
 }
 
@@ -1075,6 +1321,14 @@ function ClientActionMenu({ onEdit, onDeactivate, onDelete, isInactive }: {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ─── Meta status dot ─────────────────────────────────────────────────────────
+type OtherCampaignDetail = {
+  name: string;
+  objective: string;
+  result_label: string;
+  result_count: number;
+  spend: number;
+};
+
 type MetaInsightData = {
   account_status: number;
   spend: number;
@@ -1083,24 +1337,18 @@ type MetaInsightData = {
   total_leads: number;
   cpl: number;
   currency: string;
-  // Por objetivo
+  // Formulário
   form_leads: number;
   form_spend: number;
   form_cpl: number;
+  // Mensagens
   msg_leads: number;
   msg_spend: number;
   msg_cpl: number;
-  // Por campanha
-  campaigns: {
-    campaign_name: string;
-    objective: string;
-    objective_label: string;
-    spend: string;
-    form_leads: number;
-    msg_leads: number;
-    form_cpl: number;
-    msg_cpl: number;
-  }[];
+  // Outros Objetivos (tráfego, awareness, engajamento, etc.)
+  other_spend: number;
+  other_count: number;
+  other_campaigns: OtherCampaignDetail[];
   loading: boolean;
   error?: string;
 } | null;
@@ -1137,31 +1385,113 @@ function MetaDot({ accountId, data, onRefresh }: {
   );
 }
 
+// MetaSummary — Visão Externa (lista de clientes)
+// Mostra apenas Formulário + Mensagens (dados dos últimos 7 dias).
+// "Outros Objetivos" são omitidos intencionalmente aqui.
 function MetaSummary({ data }: { data: MetaInsightData }) {
   if (!data || data.loading || data.error || !data.account_status) return null;
-  const fmt = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const symbol = (data.currency ?? "BRL") === "USD" ? "$" : "R$";
+
+  const fmt    = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtInt = (v: number) => v.toLocaleString("pt-BR");
+  const symbol = (data.currency ?? "BRL") === "USD" ? "US$" : "R$";
+
+  // Só soma form + msg — gasto total "de negócio"
+  const bizLeads = (data.form_leads ?? 0) + (data.msg_leads ?? 0);
+  const bizSpend = (data.form_spend ?? 0) + (data.msg_spend ?? 0);
+  const bizCpl   = bizLeads > 0 ? bizSpend / bizLeads : 0;
+
+  // Se não houve nenhum gasto relevante, não mostra nada
+  if (bizSpend === 0 && data.spend === 0) return null;
+
+  // Gasto exibido: gasto de negócio se existir, caso contrário total (ex: só "outros")
+  const displaySpend = bizSpend > 0 ? bizSpend : data.spend;
+
   return (
-    <div className="flex items-center gap-2 flex-wrap mt-1">
-      <span className="text-[9px] font-semibold text-[#4a4844]">
-        Gasto: <span className="text-[#7a7268]">{symbol} {fmt(data.spend)}</span>
+    <div className="flex items-center gap-1.5 flex-wrap mt-1">
+      {/* Gasto */}
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#201f1d] border border-[#2e2c29] text-[#7a7268]">
+        <Activity size={9} className="text-[#4a4844]" />
+        {symbol} {fmt(displaySpend)}
       </span>
-      <span className="text-[#2e2c29]">·</span>
-      <span className="text-[9px] font-semibold text-[#4a4844]">
-        Leads: <span className="text-[#7a7268]">{data.total_leads}</span>
-      </span>
-      <span className="text-[#2e2c29]">·</span>
-      <span className="text-[9px] font-semibold text-[#4a4844]">
-        CPL: <span className="text-[#7a7268]">{symbol} {fmt(data.cpl)}</span>
-      </span>
+
+      {/* Leads — só aparece se houver leads reais */}
+      {bizLeads > 0 && (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/8 border border-blue-500/25 text-blue-400">
+          <Target size={9} />
+          {fmtInt(bizLeads)} leads
+        </span>
+      )}
+
+      {/* CPL — só aparece se houver leads */}
+      {bizLeads > 0 && (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/8 border border-emerald-500/25 text-emerald-400">
+          <Zap size={9} />
+          CPL {symbol} {fmt(bizCpl)}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ─── MetaGoalBar — Barra de Progresso de Meta Mensal ─────────────────────────
+function MetaGoalBar({
+  meta,
+  leadsDoMes,
+}: {
+  meta: number;
+  leadsDoMes: number;
+}) {
+  if (!meta || meta <= 0) return null;
+
+  const hoje = new Date();
+  const diasNoMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate();
+  const diaAtual = hoje.getDate();
+  const proporcao = diaAtual / diasNoMes; // 0..1
+  const metaProporcional = meta * proporcao;
+  const pct = Math.min((leadsDoMes / meta) * 100, 100);
+  const pctDisplay = Math.round(pct);
+
+  // Saúde: compara leads reais com meta proporcional ao dia
+  const ratio = metaProporcional > 0 ? leadsDoMes / metaProporcional : 1;
+  const cor =
+    ratio >= 1
+      ? { bar: "bg-emerald-500", glow: "shadow-[0_0_8px_rgba(16,185,129,0.5)]", text: "text-emerald-400", badge: "bg-emerald-500/10 border-emerald-500/25 text-emerald-400" }
+      : ratio >= 0.8
+      ? { bar: "bg-amber-400",   glow: "shadow-[0_0_8px_rgba(251,191,36,0.4)]",  text: "text-amber-400",   badge: "bg-amber-500/10 border-amber-500/25 text-amber-400" }
+      : { bar: "bg-red-500",     glow: "shadow-[0_0_8px_rgba(239,68,68,0.4)]",   text: "text-red-400",     badge: "bg-red-500/10 border-red-500/30 text-red-400" };
+
+  return (
+    <div className="mt-2 space-y-1">
+      <div className="flex items-center justify-between gap-1">
+        <span className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844] flex items-center gap-1">
+          <Target size={9} className="text-amber-500/60" /> Meta Mensal
+        </span>
+        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border ${cor.badge}`}>
+          {leadsDoMes}/{meta} leads · {pctDisplay}%
+        </span>
+      </div>
+      {/* Track */}
+      <div className="relative h-1.5 rounded-full bg-[#2e2c29] overflow-hidden">
+        {/* Marcador proporcional ao dia */}
+        <div
+          className="absolute top-0 h-full w-px bg-[#7a7268]/60 z-10"
+          style={{ left: `${Math.min(proporcao * 100, 99)}%` }}
+        />
+        {/* Barra de progresso */}
+        <div
+          className={`h-full rounded-full transition-all duration-700 ${cor.bar} ${cor.glow}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
     </div>
   );
 }
 
 // ─── Client Card ──────────────────────────────────────────────────────────────
-function ClientCard({ client, onSelect, onEdit, onDeactivate, onDelete, onToggleAlerta, metaData, onRefreshMeta, isDragging }: {
+function ClientCard({ client, onSelect, onEdit, onDeactivate, onDelete, onToggleAlerta, metaData, onRefreshMeta, isDragging, leadsDoMes }: {
   client:Cliente; onSelect:()=>void; onEdit:()=>void; onDeactivate:()=>void; onDelete:()=>void;
   onToggleAlerta:()=>void; metaData: MetaInsightData; onRefreshMeta:()=>void; isDragging?:boolean;
+  leadsDoMes?: number;
 }) {
   const st=clienteStatus(client);
   const gestorColor=client.gestor_estrategico==="Duda"?"bg-blue-600/20 text-blue-400 border-blue-500/30":
@@ -1189,7 +1519,6 @@ function ClientCard({ client, onSelect, onEdit, onDeactivate, onDelete, onToggle
           <span className={`inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border ${st.badge}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`}/>{st.label}
           </span>
-          <MetaSummary data={metaData} />
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <ClientActionMenu onEdit={onEdit} onDeactivate={onDeactivate} onDelete={onDelete} isInactive={isInactive}/>
@@ -1202,6 +1531,10 @@ function ClientCard({ client, onSelect, onEdit, onDeactivate, onDelete, onToggle
           </span>
         )):<span className="text-[#7a7268] text-xs italic">Nenhuma plataforma</span>}
       </div>
+      <MetaSummary data={metaData} />
+      {client.meta_leads_mensal != null && (
+        <MetaGoalBar meta={client.meta_leads_mensal} leadsDoMes={leadsDoMes ?? 0} />
+      )}
       <div className="flex items-center gap-2 flex-wrap border-t border-[#2e2c29]/50 pt-2">
         <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#201f1d] border border-[#2e2c29] text-[#7a7268]">
           <Layers size={10} /> {client.gestor}
@@ -1383,6 +1716,17 @@ function EditClienteModal({
 
   const [saving, setSaving] = useState(false);
 
+  // ── Metas e Verbas ──────────────────────────────────────────────────────────
+  const [metaLeadsMensal, setMetaLeadsMensal] = useState<string>(
+    cliente.meta_leads_mensal != null ? String(cliente.meta_leads_mensal) : ""
+  );
+  const [verbaMeta, setVerbaMeta] = useState<string>(
+    cliente.verba_meta_ads != null ? String(cliente.verba_meta_ads) : ""
+  );
+  const [verbaGls, setVerbaGls] = useState<string>(
+    cliente.verba_gls != null ? String(cliente.verba_gls) : ""
+  );
+
   const togglePlatform = (key: PlatformKey) => {
     setActivePlats(prev => {
       const next = new Set(prev);
@@ -1435,6 +1779,9 @@ function EditClienteModal({
         platforms: newPlatforms,
         status: newStatus,
         tipo_campanha: tipoCampanhaArray.length > 0 ? tipoCampanhaArray.join(',') : null,
+        meta_leads_mensal: metaLeadsMensal !== "" ? Number(metaLeadsMensal) : null,
+        verba_meta_ads:    verbaMeta !== "" ? Number(verbaMeta) : null,
+        verba_gls:         verbaGls  !== "" ? Number(verbaGls)  : null,
       };
 
       const { data, error } = await supabase
@@ -1619,6 +1966,63 @@ function EditClienteModal({
           )}
         </div>
 
+        {/* ── Metas & Controle de Investimento ────────────────────────────── */}
+        <div className="px-6 py-5 border-t border-[#2e2c29] space-y-4">
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded bg-amber-500/20 flex items-center justify-center shrink-0">
+              <Target size={10} className="text-amber-400" />
+            </div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-[#7a7268]">Metas &amp; Controle de Investimento</p>
+          </div>
+
+          {/* Meta Mensal de Leads */}
+          <div className="space-y-1.5">
+            <label className="text-[10px] text-[#4a4844] font-medium">Meta Mensal de Leads</label>
+            <input
+              type="number"
+              min="0"
+              value={metaLeadsMensal}
+              onChange={e => setMetaLeadsMensal(e.target.value)}
+              placeholder="Ex: 50"
+              className="w-full bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 py-2.5 text-sm text-[#e8e2d8] placeholder:text-[#4a4844] outline-none focus:border-amber-500/60 transition-colors"
+            />
+          </div>
+
+          {/* Verbas lado a lado */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-[10px] text-[#4a4844] font-medium flex items-center gap-1">
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="#1877F2"><path d="M24 12.073c0-6.627-5.372-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+                Verba Meta Ads (R$)
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={verbaMeta}
+                onChange={e => setVerbaMeta(e.target.value)}
+                placeholder="Ex: 3000.00"
+                className="w-full bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 py-2.5 text-sm text-[#e8e2d8] placeholder:text-[#4a4844] outline-none focus:border-blue-500/50 transition-colors"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] text-[#4a4844] font-medium flex items-center gap-1">
+                <svg width="9" height="9" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="20" fill="#34A853"/><path d="M34.5858 17.5858L21.4142 30.7574L14.8284 24.1716L12 27L21.4142 36.4142L37.4142 20.4142L34.5858 17.5858Z" fill="white"/></svg>
+                Verba GLS (R$)
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={verbaGls}
+                onChange={e => setVerbaGls(e.target.value)}
+                placeholder="Ex: 1500.00"
+                className="w-full bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 py-2.5 text-sm text-[#e8e2d8] placeholder:text-[#4a4844] outline-none focus:border-purple-500/50 transition-colors"
+              />
+            </div>
+          </div>
+        </div>
+
         {/* Footer */}
         <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-[#2e2c29] bg-[#111010] shrink-0">
           <button onClick={onClose} className="px-4 py-2 rounded-xl border border-[#2e2c29] bg-[#201f1d] text-[#7a7268] text-xs font-semibold hover:text-[#e8e2d8] hover:border-[#7a7268] transition-colors">Cancelar</button>
@@ -1672,6 +2076,8 @@ function renderRadar({
   onCustomFromChange,
   onCustomToChange,
   onCustomApply,
+  verbaMeta,
+  verbaGls,
 }: {
   data: MetaInsightData;
   preset: RadarPreset;
@@ -1682,13 +2088,17 @@ function renderRadar({
   onCustomFromChange: (v: string) => void;
   onCustomToChange: (v: string) => void;
   onCustomApply: () => void;
+  verbaMeta?: number | null;
+  verbaGls?: number | null;
 }) {
   const fmt = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const symbol = !data || (data.currency ?? "BRL") === "BRL" ? "R$" : "$";
+  const fmtInt = (v: number) => v.toLocaleString("pt-BR");
+  const symbol = !data || (data.currency ?? "BRL") === "BRL" ? "R$" : "US$";
 
-  const hasForm = data && !data.loading && !data.error && data.form_leads > 0;
-  const hasMsg  = data && !data.loading && !data.error && data.msg_leads  > 0;
-  const hasData = data && !data.loading && !data.error && data.account_status >= 1;
+  const hasForm  = data && !data.loading && !data.error && data.form_leads > 0;
+  const hasMsg   = data && !data.loading && !data.error && data.msg_leads  > 0;
+  const hasOther = data && !data.loading && !data.error && (data.other_spend ?? 0) > 0;
+  const hasData  = data && !data.loading && !data.error && data.account_status >= 1;
 
   return (
     <div className="rounded-xl border border-blue-500/20 bg-[#111827]/60 p-4 space-y-3">
@@ -1750,129 +2160,201 @@ function renderRadar({
         </div>
       )}
 
-      {/* Dados: resumo consolidado (único bloco de totais) */}
-      {hasData && (
-        <div className="flex items-center gap-4 flex-wrap pb-2 border-b border-[#2e2c29]">
+      {/* Dados: bloco consolidado (nenhum objetivo de lead/msg) */}
+      {hasData && !hasForm && !hasMsg && !hasOther && (
+        <div className="grid grid-cols-3 gap-3">
           <div className="flex flex-col gap-0.5">
             <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Gasto Total</p>
             <p className="text-sm font-extrabold text-[#e8e2d8]">{symbol} {fmt(data!.spend)}</p>
           </div>
-          <div className="w-px h-8 bg-[#2e2c29] shrink-0" />
           <div className="flex flex-col gap-0.5">
             <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">CPL Médio</p>
             <p className="text-sm font-extrabold text-[#e8e2d8]">{symbol} {fmt(data!.cpl)}</p>
           </div>
-          <div className="w-px h-8 bg-[#2e2c29] shrink-0" />
           <div className="flex flex-col gap-0.5">
-            <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Total Leads</p>
+            <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Leads</p>
             <p className="text-sm font-extrabold text-[#e8e2d8]">{data!.total_leads}</p>
-            {(data!.form_leads > 0 || data!.msg_leads > 0) && (
-              <p className="text-[9px] text-[#7a7268] font-medium">
-                {data!.form_leads > 0 && <span className="text-blue-400/80">{data!.form_leads} form</span>}
-                {data!.form_leads > 0 && data!.msg_leads > 0 && <span className="text-[#4a4844]"> · </span>}
-                {data!.msg_leads > 0 && <span className="text-emerald-400/80">{data!.msg_leads} msg</span>}
-              </p>
-            )}
           </div>
+        </div>
+      )}
+
+      {/* Dados: blocos separados por objetivo */}
+      {hasData && (hasForm || hasMsg || hasOther) && (
+        <div className="space-y-2">
+          {/* Totais no topo */}
+          <div className="flex items-center justify-between pb-2 border-b border-[#2e2c29]">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div>
+                <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Gasto Total</p>
+                <p className="text-sm font-extrabold text-[#e8e2d8]">{symbol} {fmt(data!.spend)}</p>
+              </div>
+              {(hasForm || hasMsg) && (
+                <>
+                  <div className="w-px h-8 bg-[#2e2c29]" />
+                  <div>
+                    <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">CPL Médio</p>
+                    <p className="text-sm font-extrabold text-[#e8e2d8]">{symbol} {fmt(data!.cpl)}</p>
+                  </div>
+                  <div className="w-px h-8 bg-[#2e2c29]" />
+                  <div>
+                    <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Total Leads</p>
+                    <p className="text-sm font-extrabold text-[#e8e2d8]">{data!.total_leads}</p>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* ── Comparativo de Verba ──────────────────────────────────────── */}
+          {verbaMeta != null && verbaMeta > 0 && data && !data.loading && !data.error && (
+            (() => {
+              const gasto = data.spend ?? 0;
+              const pct = verbaMeta > 0 ? Math.min((gasto / verbaMeta) * 100, 999) : 0;
+              const restante = verbaMeta - gasto;
+              const cor = pct >= 100
+                ? { bar: "bg-red-500",   text: "text-red-400",   badge: "bg-red-500/10 border-red-500/25" }
+                : pct >= 80
+                ? { bar: "bg-amber-400", text: "text-amber-400", badge: "bg-amber-500/10 border-amber-500/25" }
+                : { bar: "bg-blue-500",  text: "text-blue-400",  badge: "bg-blue-500/10 border-blue-500/20" };
+              return (
+                <div className="p-3 rounded-xl bg-blue-500/5 border border-blue-500/15 space-y-2">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-[9px] font-bold uppercase tracking-widest text-blue-400 flex items-center gap-1">
+                      <Activity size={9} /> Controle de Verba Meta Ads
+                    </span>
+                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-md border ${cor.badge} ${cor.text}`}>
+                      {Math.round(pct)}% utilizado
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <div>
+                      <p className="text-[9px] text-[#4a4844] font-bold uppercase tracking-widest">Gasto Real</p>
+                      <p className={`text-xs font-extrabold ${cor.text}`}>{symbol} {fmt(gasto)}</p>
+                    </div>
+                    <div className="w-px h-6 bg-[#2e2c29]" />
+                    <div>
+                      <p className="text-[9px] text-[#4a4844] font-bold uppercase tracking-widest">Verba Planejada</p>
+                      <p className="text-xs font-extrabold text-[#e8e2d8]">{symbol} {fmt(verbaMeta)}</p>
+                    </div>
+                    <div className="w-px h-6 bg-[#2e2c29]" />
+                    <div>
+                      <p className="text-[9px] text-[#4a4844] font-bold uppercase tracking-widest">{restante >= 0 ? "Saldo" : "Excedente"}</p>
+                      <p className={`text-xs font-extrabold ${restante >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                        {restante >= 0 ? "" : "-"}{symbol} {fmt(Math.abs(restante))}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="relative h-1.5 rounded-full bg-[#2e2c29] overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-700 ${cor.bar}`}
+                      style={{ width: `${Math.min(pct, 100)}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })()
+          )}
+
+          {/* Bloco: Formulário */}
+          {hasForm && (
+            <div className="flex items-center gap-3 rounded-lg bg-blue-500/8 border border-blue-500/15 px-3 py-2.5">
+              <div className="shrink-0">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30 uppercase tracking-wide">
+                  Formulário
+                </span>
+              </div>
+              <div className="flex items-center gap-4 flex-1 flex-wrap">
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Leads</p>
+                  <p className="text-xs font-extrabold text-[#e8e2d8]">{fmtInt(data!.form_leads)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Gasto</p>
+                  <p className="text-xs font-extrabold text-[#e8e2d8]">{symbol} {fmt(data!.form_spend)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">CPL</p>
+                  <p className="text-xs font-extrabold text-blue-300">{symbol} {fmt(data!.form_cpl)}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Bloco: Mensagens */}
+          {hasMsg && (
+            <div className="flex items-center gap-3 rounded-lg bg-emerald-500/8 border border-emerald-500/15 px-3 py-2.5">
+              <div className="shrink-0">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase tracking-wide">
+                  Mensagens
+                </span>
+              </div>
+              <div className="flex items-center gap-4 flex-1 flex-wrap">
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Conversas</p>
+                  <p className="text-xs font-extrabold text-[#e8e2d8]">{fmtInt(data!.msg_leads)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Gasto</p>
+                  <p className="text-xs font-extrabold text-[#e8e2d8]">{symbol} {fmt(data!.msg_spend)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">CPL</p>
+                  <p className="text-xs font-extrabold text-emerald-300">{symbol} {fmt(data!.msg_cpl)}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Bloco: Outros Objetivos — tráfego, awareness, engajamento, etc. */}
+          {hasOther && (
+            <div className="rounded-lg bg-[#201f1d] border border-[#2e2c29] overflow-hidden">
+              {/* Cabeçalho do bloco */}
+              <div className="flex items-center justify-between px-3 py-2 border-b border-[#2e2c29]">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/25 uppercase tracking-wide">
+                  Outros Objetivos
+                </span>
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Gasto</p>
+                    <p className="text-xs font-extrabold text-[#e8e2d8]">{symbol} {fmt(data!.other_spend)}</p>
+                  </div>
+                  {(data!.other_count ?? 0) > 0 && (
+                    <div className="text-right">
+                      <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Resultados</p>
+                      <p className="text-xs font-extrabold text-[#e8e2d8]">{fmtInt(data!.other_count)}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              {/* Linhas por campanha */}
+              <div className="divide-y divide-[#1a1917]">
+                {(data!.other_campaigns ?? []).map((c, i) => (
+                  <div key={i} className="flex items-center justify-between gap-2 px-3 py-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] font-semibold text-[#c8c0b4] truncate">{c.name}</p>
+                      <p className="text-[9px] text-[#4a4844] truncate">{c.objective.replace("OUTCOME_", "").replace(/_/g, " ")}</p>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0 text-right">
+                      <div>
+                        <p className="text-[9px] font-bold text-[#4a4844]">{c.result_label}</p>
+                        <p className="text-[10px] font-extrabold text-amber-300">{fmtInt(c.result_count)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] font-bold text-[#4a4844]">Gasto</p>
+                        <p className="text-[10px] font-extrabold text-[#7a7268]">{symbol} {fmt(c.spend)}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       {/* Sem dados */}
-      {data && !data.loading && !data.error && data.account_status >= 1 && data.total_leads === 0 && data.spend === 0 && (
+      {data && !data.loading && !data.error && data.account_status >= 1 && data.total_leads === 0 && data.spend === 0 && (data.other_spend ?? 0) === 0 && (
         <p className="text-[10px] text-[#4a4844] italic text-center py-1">Nenhum dado para o período selecionado.</p>
-      )}
-
-      {/* Tabela por campanha */}
-      {hasData && data!.campaigns && data!.campaigns.length > 0 && (
-        <div className="space-y-1.5">
-          <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844] flex items-center gap-1.5">
-            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" className="text-[#4a4844]">
-              <path d="M0 2h16v2H0zM0 7h16v2H0zM0 12h16v2H0z"/>
-            </svg>
-            Campanhas
-          </p>
-          <div className="rounded-lg border border-[#2e2c29] overflow-hidden">
-            {/* Header */}
-            <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-3 px-3 py-1.5 bg-[#111010]/80 border-b border-[#2e2c29]">
-              <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Campanha</p>
-              <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844] w-20">Objetivo</p>
-              <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844] text-right w-16">Gasto</p>
-              <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844] text-right w-12">Leads</p>
-              <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844] text-right w-16">CPL</p>
-            </div>
-            {/* Rows */}
-            {data!.campaigns
-              .slice()
-              .sort((a, b) => parseFloat(b.spend) - parseFloat(a.spend))
-              .map((camp, i) => {
-                const campLeads = camp.form_leads + camp.msg_leads;
-                const campCpl   = camp.form_cpl || camp.msg_cpl || 0;
-                const hasLeads  = campLeads > 0;
-                // Badge color por objetivo
-                const objColors: Record<string, string> = {
-                  OUTCOME_LEADS:         "bg-blue-500/20 text-blue-300 border-blue-500/30",
-                  OUTCOME_ENGAGEMENT:    "bg-purple-500/20 text-purple-300 border-purple-500/30",
-                  OUTCOME_AWARENESS:     "bg-amber-500/20 text-amber-300 border-amber-500/30",
-                  OUTCOME_TRAFFIC:       "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
-                  OUTCOME_SALES:         "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
-                  OUTCOME_APP_PROMOTION: "bg-orange-500/20 text-orange-300 border-orange-500/30",
-                  MESSAGES:              "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
-                };
-                const badgeCls = objColors[camp.objective] ?? "bg-[#2e2c29] text-[#7a7268] border-[#3a3835]";
-                return (
-                  <div key={i}
-                    className={`grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-3 px-3 py-2 items-center ${
-                      i % 2 === 0 ? "bg-[#111010]/40" : "bg-transparent"
-                    } border-b border-[#2e2c29]/50 last:border-0`}>
-                    <div className="min-w-0">
-                      <p className="text-[10px] text-[#c8c0b4] truncate font-medium leading-tight" title={camp.campaign_name}>
-                        {camp.campaign_name}
-                      </p>
-                      {hasLeads && (
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          {camp.form_leads > 0 && (
-                            <span className="text-[8px] font-bold text-blue-400/70">{camp.form_leads} form</span>
-                          )}
-                          {camp.msg_leads > 0 && (
-                            <span className="text-[8px] font-bold text-emerald-400/70">{camp.msg_leads} msg</span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap w-20 text-center ${badgeCls}`}>
-                      {camp.objective_label || "—"}
-                    </span>
-                    <p className="text-[10px] font-semibold text-[#e8e2d8] text-right w-16 tabular-nums">
-                      {symbol} {parseFloat(camp.spend).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </p>
-                    <p className={`text-[10px] font-semibold text-right w-12 tabular-nums ${hasLeads ? "text-[#e8e2d8]" : "text-[#4a4844]"}`}>
-                      {hasLeads ? campLeads : "—"}
-                    </p>
-                    <p className={`text-[10px] font-semibold text-right w-16 tabular-nums ${hasLeads && campCpl > 0 ? "text-amber-400" : "text-[#4a4844]"}`}>
-                      {hasLeads && campCpl > 0
-                        ? `${symbol} ${campCpl.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                        : "—"}
-                    </p>
-                  </div>
-                );
-              })}
-            {/* Footer totals */}
-            <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 px-3 py-2 bg-[#201f1d] border-t border-[#2e2c29]">
-              <p className="text-[9px] font-bold uppercase tracking-widest text-[#7a7268]">Total</p>
-              <p className="text-[10px] font-extrabold text-amber-400 text-right w-16 tabular-nums">
-                {symbol} {data!.spend.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </p>
-              <p className="text-[10px] font-extrabold text-amber-400 text-right w-12 tabular-nums">
-                {data!.total_leads > 0 ? data!.total_leads : "—"}
-              </p>
-              <p className="text-[10px] font-extrabold text-amber-400 text-right w-16 tabular-nums">
-                {data!.cpl > 0
-                  ? `${symbol} ${data!.cpl.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                  : "—"}
-              </p>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );
@@ -1880,13 +2362,15 @@ function renderRadar({
 
 // ─── RadarWrapper: componente com estado próprio ──────────────────────────────
 function RadarWrapper({
-  clienteId, accountId, token, data, onFetch,
+  clienteId, accountId, token, data, onFetch, verbaMeta, verbaGls,
 }: {
   clienteId: string;
   accountId: string;
   token: string | null;
   data: MetaInsightData;
   onFetch: (clienteId: string, accountId: string, token: string | null, since: string, until: string) => void;
+  verbaMeta?: number | null;
+  verbaGls?: number | null;
 }) {
   const [preset, setPreset]         = useState<RadarPreset>("7d");
   const [customFrom, setCustomFrom] = useState("");
@@ -1921,6 +2405,8 @@ function RadarWrapper({
     onCustomFromChange: setCustomFrom,
     onCustomToChange: setCustomTo,
     onCustomApply: handleCustomApply,
+    verbaMeta,
+    verbaGls,
   });
 }
 
@@ -1986,6 +2472,9 @@ function normalizeCliente(raw: Record<string, unknown>): Cliente {
     meta_ad_account_id: (raw.meta_ad_account_id as string) ?? null,
     meta_access_token:  (raw.meta_access_token  as string) ?? null,
     meta_status:        (raw.meta_status         as string) ?? "sem_link",
+    meta_leads_mensal:  raw.meta_leads_mensal  != null ? Number(raw.meta_leads_mensal)  : null,
+    verba_meta_ads:     raw.verba_meta_ads     != null ? Number(raw.verba_meta_ads)     : null,
+    verba_gls:          raw.verba_gls          != null ? Number(raw.verba_gls)          : null,
   } as Cliente;
 }
 
@@ -2012,6 +2501,9 @@ export default function Home() {
   const [clienteModal, setClienteModal]       = useState<{ mode:"new"|"edit"; client?: Cliente } | null>(null);
   const [editModal, setEditModal]             = useState<Cliente | null>(null);
 
+  // ── Leads do Mês por Cliente (para barra de meta) ──────────────────────────
+  const [leadsDoMesPorCliente, setLeadsDoMesPorCliente] = useState<Record<string, number>>({});
+
   const [leadsLoading, setLeadsLoading] = useState(false);
   const [currentPage, setCurrentPage]   = useState(1);
   const [newLeadOpen, setNewLeadOpen]   = useState(false);
@@ -2025,7 +2517,8 @@ export default function Home() {
   const [itemsPerPage, setItemsPerPage] = useState(10); // Padrão: 10 itens por página
 
   const [clientSearch, setClientSearch] = useState("");
-  const [gestorFilter, setGestorFilter] = useState("");
+  const [gestorFilter, setGestorFilter] = useState("");       // Gestor Estratégico
+  const [trafegoFilter, setTrafegoFilter] = useState("");     // Gestor de Tráfego (novo)
   const [statusFilter, setStatusFilter] = useState("todos");
   const [pendenciasFilter, setPendenciasFilter] = useState(false);
   const [metaInsights, setMetaInsights] = useState<Record<string, {
@@ -2042,16 +2535,6 @@ export default function Home() {
     msg_leads: number;
     msg_spend: number;
     msg_cpl: number;
-    campaigns: {
-      campaign_name: string;
-      objective: string;
-      objective_label: string;
-      spend: string;
-      form_leads: number;
-      msg_leads: number;
-      form_cpl: number;
-      msg_cpl: number;
-    }[];
     loading: boolean;
     error?: string;
   }>>({});
@@ -2150,10 +2633,21 @@ export default function Home() {
   const fetchOperacoes = async (p: GestorPerfil) => {
     setOperacoesLoading(true);
     try {
-      const { data, error } = await supabase.from("operacoes").select("*").order("created_at",{ascending:true});
+      // Fallback: gestor sem operações associadas — não quebra a app
+      if (p.role === "gestor" && (!p.operacao_id || p.operacao_id.length === 0)) {
+        setOperacoes([]);
+        toast.error("Seu usuário não está associado a nenhuma operação. Contate o administrador.");
+        return;
+      }
+
+      let query = supabase.from("operacoes").select("*").order("created_at", { ascending: true });
+      if (p.role === "gestor" && p.operacao_id) {
+        query = query.in("id", p.operacao_id);
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
-      let ops = (data as Operacao[]) ?? [];
-      if (p.role === "gestor" && p.operacao_id) ops = ops.filter(op => op.id === p.operacao_id);
+      const ops = (data as Operacao[]) ?? [];
       setOperacoes(ops);
       if (ops.length > 0) { setOperacaoAtiva(ops[0]); fetchClientes(ops[0].id); }
     } catch (err: unknown) {
@@ -2168,7 +2662,7 @@ export default function Home() {
     try {
       const { data, error } = await supabase
         .from("clientes")
-        .select("id, nome, operacao_id, gestor, gestor_estrategico, platforms, status, created_at, ordem, tipo_campanha, alerta_pagamento, meta_ad_account_id, meta_access_token, meta_status")
+        .select("id, nome, operacao_id, gestor, gestor_estrategico, platforms, status, created_at, ordem, tipo_campanha, alerta_pagamento, meta_ad_account_id, meta_access_token, meta_status, meta_leads_mensal, verba_meta_ads, verba_gls")
         .eq("operacao_id",operacaoId)
         .order("ordem",{ascending:true,nullsFirst:false})
         .order("created_at",{ascending:true});
@@ -2181,6 +2675,8 @@ export default function Home() {
           fetchMetaInsights(c.id, c.meta_ad_account_id, c.meta_access_token ?? null);
         }
       });
+      // Busca leads do mês atual por cliente (para barra de meta)
+      fetchLeadsDoMesBatch(rows.map(r => r.id));
     } catch (err: unknown) {
       toast.error(`Erro ao carregar clientes: ${err instanceof Error ? err.message : "Erro desconhecido"}`);
     } finally {
@@ -2189,9 +2685,33 @@ export default function Home() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Busca contagem de leads do mês atual para cada cliente (para barra de meta)
+  const fetchLeadsDoMesBatch = useCallback(async (clienteIds: string[]) => {
+    if (!clienteIds.length) return;
+    try {
+      const now = new Date();
+      const mesInicio = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+      const mesFim    = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+      const { data, error } = await supabase
+        .from("leads")
+        .select("cliente, data")
+        .in("cliente", clienteIds)
+        .gte("data", mesInicio)
+        .lte("data", mesFim);
+      if (error) throw error;
+      const counts: Record<string, number> = {};
+      for (const row of (data ?? []) as { cliente: string; data: string }[]) {
+        if (row.cliente) counts[row.cliente] = (counts[row.cliente] ?? 0) + 1;
+      }
+      setLeadsDoMesPorCliente(counts);
+    } catch {
+      // silencia — não é crítico
+    }
+  }, []);
+
   const handleSelectOperacao = (op: Operacao) => {
     setOperacaoAtiva(op); setClienteAtivo(null);
-    setClientSearch(""); setGestorFilter(""); setOpDropdownOpen(false);
+    setClientSearch(""); setGestorFilter(""); setTrafegoFilter(""); setOpDropdownOpen(false);
     fetchClientes(op.id);
   };
 
@@ -2341,7 +2861,7 @@ export default function Home() {
     since?: string,
     until?: string,
   ) => {
-    const zero = { account_status: 0, spend: 0, leads: 0, messages: 0, total_leads: 0, cpl: 0, currency: "BRL", form_leads: 0, form_spend: 0, form_cpl: 0, msg_leads: 0, msg_spend: 0, msg_cpl: 0, campaigns: [] as { campaign_name: string; objective: string; objective_label: string; spend: string; form_leads: number; msg_leads: number; form_cpl: number; msg_cpl: number }[] };
+    const zero = { account_status: 0, spend: 0, leads: 0, messages: 0, total_leads: 0, cpl: 0, currency: "BRL", form_leads: 0, form_spend: 0, form_cpl: 0, msg_leads: 0, msg_spend: 0, msg_cpl: 0, other_spend: 0, other_count: 0, other_campaigns: [] as OtherCampaignDetail[] };
     setMetaInsights(prev => ({ ...prev, [clienteId]: { ...zero, loading: true } }));
     try {
       const params = new URLSearchParams({ action: "insights", account_id: accountId });
@@ -2350,7 +2870,7 @@ export default function Home() {
         params.set("since", since);
         params.set("until", until);
       } else {
-        // Padrão: últimos 7 dias
+        // Padrão dos badges externos: últimos 7 dias
         const today = new Date();
         const from  = new Date(today);
         from.setDate(today.getDate() - 6);
@@ -2364,27 +2884,29 @@ export default function Home() {
       setMetaInsights(prev => ({
         ...prev,
         [clienteId]: {
-          account_status: json.account_status,
-          spend:          json.spend,
-          leads:          json.leads          ?? 0,
-          messages:       json.messages       ?? 0,
-          total_leads:    json.total_leads,
-          cpl:            json.cpl,
-          currency:       json.currency       ?? "BRL",
-          form_leads:     json.form_leads     ?? 0,
-          form_spend:     json.form_spend     ?? 0,
-          form_cpl:       json.form_cpl       ?? 0,
-          msg_leads:      json.msg_leads      ?? 0,
-          msg_spend:      json.msg_spend      ?? 0,
-          msg_cpl:        json.msg_cpl        ?? 0,
-          campaigns:      json.campaigns      ?? [],
-          loading:        false,
+          account_status:  json.account_status,
+          spend:           json.spend,
+          leads:           json.leads           ?? 0,
+          messages:        json.messages        ?? 0,
+          total_leads:     json.total_leads,
+          cpl:             json.cpl,
+          currency:        json.currency        ?? "BRL",
+          form_leads:      json.form_leads      ?? 0,
+          form_spend:      json.form_spend      ?? 0,
+          form_cpl:        json.form_cpl        ?? 0,
+          msg_leads:       json.msg_leads       ?? 0,
+          msg_spend:       json.msg_spend       ?? 0,
+          msg_cpl:         json.msg_cpl         ?? 0,
+          other_spend:     json.other_spend     ?? 0,
+          other_count:     json.other_count     ?? 0,
+          other_campaigns: json.other_campaigns ?? [],
+          loading:         false,
         },
       }));
     } catch (err: unknown) {
       setMetaInsights(prev => ({
         ...prev,
-        [clienteId]: { account_status: -1, spend: 0, leads: 0, messages: 0, total_leads: 0, cpl: 0, currency: "BRL", form_leads: 0, form_spend: 0, form_cpl: 0, msg_leads: 0, msg_spend: 0, msg_cpl: 0, campaigns: [], loading: false, error: (err as Error).message },
+        [clienteId]: { account_status: -1, spend: 0, leads: 0, messages: 0, total_leads: 0, cpl: 0, currency: "BRL", form_leads: 0, form_spend: 0, form_cpl: 0, msg_leads: 0, msg_spend: 0, msg_cpl: 0, other_spend: 0, other_count: 0, other_campaigns: [], loading: false, error: (err as Error).message },
       }));
     }
   };
@@ -2403,7 +2925,8 @@ export default function Home() {
       const filtered = sorted.filter(c => {
         const matchSearch = !clientSearch||c.nome.toLowerCase().includes(clientSearch.toLowerCase());
         const matchGestor = !gestorFilter||c.gestor_estrategico===gestorFilter;
-        return matchSearch && matchGestor;
+        const matchTrafego = !trafegoFilter||c.gestor===trafegoFilter;
+        return matchSearch && matchGestor && matchTrafego;
       });
       const reordered = [...filtered];
       const [moved] = reordered.splice(source.index,1);
@@ -2416,7 +2939,7 @@ export default function Home() {
       return updated;
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientSearch, gestorFilter]);
+  }, [clientSearch, gestorFilter, trafegoFilter]);
 
   const handleAddEstrat = async (nome: string) => {
     try { const { error } = await supabase.from("gestores").insert({nome,tipo:"estrategico"}); if (error) throw error; setGestoresEstrat(prev=>[...prev,nome]); }
@@ -2483,20 +3006,22 @@ export default function Home() {
   // Dashboard usa o mesmo set filtrado
   const filteredDashboardLeads = filteredLeads;
 
-  const platOptions   = [...new Set(allLeadsForDashboard.map(l=>l.plataforma).filter(Boolean))].sort();
-  const gestorOptions = [...new Set(clientes.map(c=>c.gestor_estrategico).filter(Boolean))].sort();
+  const platOptions    = [...new Set(allLeadsForDashboard.map(l=>l.plataforma).filter(Boolean))].sort();
+  // Gestores estratégicos presentes nos clientes da operação
+  const gestorOptions  = [...new Set(clientes.map(c=>c.gestor_estrategico).filter(Boolean))].sort();
+  // Gestores de tráfego presentes nos clientes da operação (fonte: campo `gestor`)
+  const trafegoOptions = [...new Set(clientes.map(c=>c.gestor).filter(Boolean))].sort();
 
   const filteredClientes = clientes.filter(c => {
-    // 1. Regra da Busca (Nome)
+    // 1. Busca por nome
     const matchSearch = !clientSearch || (c.nome || "").toLowerCase().includes(clientSearch.toLowerCase());
-    
-    // 2. Regra do Gestor
+    // 2. Gestor Estratégico
     const matchGestor = !gestorFilter || c.gestor_estrategico === gestorFilter;
-    
-    // 3. Regra do Status (O SEGREDO ESTAVA AQUI)
+    // 3. Gestor de Tráfego (novo filtro cruzado)
+    const matchTrafego = !trafegoFilter || c.gestor === trafegoFilter;
+    // 4. Status
     const isInactive = isClienteInativo(c);
-    const hasAnyCampaign = c.platforms && c.platforms.length > 0; // Agora ele lê o seu banco do jeito certo!
-    
+    const hasAnyCampaign = c.platforms && c.platforms.length > 0;
     let matchStatus = true;
     if (statusFilter === "ativos") {
       matchStatus = !isInactive && hasAnyCampaign;
@@ -2505,11 +3030,10 @@ export default function Home() {
     } else if (statusFilter === "cancelados") {
       matchStatus = isInactive;
     }
-
-    // 4. Filtro de Pendências
+    // 5. Pendências de pagamento
     const matchPendencia = !pendenciasFilter || c.alerta_pagamento === true;
 
-    return matchSearch && matchGestor && matchStatus && matchPendencia;
+    return matchSearch && matchGestor && matchTrafego && matchStatus && matchPendencia;
   })
     .sort((a,b) => {
       const aInactive = isClienteInativo(a);
@@ -2549,6 +3073,7 @@ export default function Home() {
     onRefreshMeta:   () => c.meta_ad_account_id
       ? fetchMetaInsights(c.id, c.meta_ad_account_id, c.meta_access_token ?? null, dateFrom || undefined, dateTo || undefined)
       : undefined,
+    leadsDoMes:      leadsDoMesPorCliente[c.id] ?? 0,
   });
 
   const backToDashboard = () => {
@@ -2649,7 +3174,7 @@ export default function Home() {
                       className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-xl bg-[#201f1d] border border-dashed border-[#3a3835] text-[#7a7268] hover:text-amber-400 hover:border-amber-500/40 transition-all text-sm font-bold">+</button>
                   )}
                 </div>
-                <div className="sm:hidden relative">
+                <div className={`sm:hidden relative ${operacoes.length <= 1 ? "hidden" : ""}`}>
                   <button onClick={()=>setOpDropdownOpen(v=>!v)}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 border border-amber-400 text-[#111] text-xs font-bold shadow-[0_2px_10px_rgba(245,166,35,0.3)] max-w-[140px] truncate">
                     <span className="truncate">{operacaoAtiva?.nome ?? "Operação"}</span>
@@ -2790,59 +3315,131 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row flex-wrap items-center gap-3 w-full mb-6">
-              {/* Busca — ocupa linha inteira no mobile, flex-1 no desktop */}
-              <div className="relative w-full sm:flex-1">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#7a7268] pointer-events-none select-none" />
-                <input type="text" value={clientSearch} onChange={e=>setClientSearch(e.target.value)}
-                  placeholder="Buscar cliente por nome..."
-                  className="w-full bg-[#201f1d] border border-[#2e2c29] rounded-xl pl-10 pr-4 py-2.5 text-sm text-[#e8e2d8] placeholder:text-[#7a7268] outline-none focus:border-amber-500/60 transition-colors"/>
+            <div className="flex flex-col gap-2 w-full mb-6">
+              {/* ── Linha 1: Busca + Gestor de Tráfego + Gestor Estratégico ── */}
+              <div className="flex flex-col sm:flex-row flex-wrap items-center gap-2 w-full">
+                {/* Busca por nome */}
+                <div className="relative w-full sm:flex-1 min-w-0">
+                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#7a7268] pointer-events-none select-none" />
+                  <input
+                    type="text"
+                    value={clientSearch}
+                    onChange={e => setClientSearch(e.target.value)}
+                    placeholder="Buscar cliente por nome..."
+                    className="w-full bg-[#201f1d] border border-[#2e2c29] rounded-xl pl-9 pr-4 py-2.5 text-sm text-[#e8e2d8] placeholder:text-[#7a7268] outline-none focus:border-amber-500/60 transition-colors"
+                  />
+                </div>
+
+                {/* Gestor de Tráfego (novo) */}
+                <div className="relative w-full sm:w-44">
+                  <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
+                    <Layers size={13} className={trafegoFilter ? "text-amber-400" : "text-[#4a4844]"} />
+                  </div>
+                  <select
+                    value={trafegoFilter}
+                    onChange={e => setTrafegoFilter(e.target.value)}
+                    className={`w-full appearance-none rounded-xl pl-8 pr-8 py-2.5 text-sm outline-none transition-colors cursor-pointer border ${
+                      trafegoFilter
+                        ? "bg-[#201f1d] border-amber-500/40 text-amber-300 focus:border-amber-500/70"
+                        : "bg-[#201f1d] border-[#2e2c29] text-[#e8e2d8] focus:border-amber-500/60"
+                    }`}
+                  >
+                    <option value="">Gestor de Tráfego</option>
+                    {trafegoOptions.map(g => <option key={g} value={g}>{g}</option>)}
+                  </select>
+                  <ChevronDown size={13} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#7a7268]" />
+                </div>
+
+                {/* Gestor Estratégico */}
+                <div className="relative w-full sm:w-44">
+                  <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
+                    <User size={13} className={gestorFilter ? "text-amber-400" : "text-[#4a4844]"} />
+                  </div>
+                  <select
+                    value={gestorFilter}
+                    onChange={e => setGestorFilter(e.target.value)}
+                    className={`w-full appearance-none rounded-xl pl-8 pr-8 py-2.5 text-sm outline-none transition-colors cursor-pointer border ${
+                      gestorFilter
+                        ? "bg-[#201f1d] border-amber-500/40 text-amber-300 focus:border-amber-500/70"
+                        : "bg-[#201f1d] border-[#2e2c29] text-[#e8e2d8] focus:border-amber-500/60"
+                    }`}
+                  >
+                    <option value="">Gestor Estratégico</option>
+                    {gestorOptions.map(g => <option key={g} value={g}>{g}</option>)}
+                  </select>
+                  <ChevronDown size={13} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#7a7268]" />
+                </div>
+
+                {/* Status */}
+                <div className="relative w-full sm:w-44">
+                  <select
+                    value={statusFilter}
+                    onChange={e => setStatusFilter(e.target.value)}
+                    className="w-full appearance-none bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 pr-9 py-2.5 text-sm text-[#e8e2d8] outline-none focus:border-amber-500/60 transition-colors cursor-pointer"
+                  >
+                    <option value="todos">Todos os status</option>
+                    <option value="ativos">Ativos</option>
+                    <option value="sem_camp">Pausados/Sem Camp.</option>
+                    <option value="cancelados">Cancelados</option>
+                  </select>
+                  <ChevronDown size={13} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#7a7268]" />
+                </div>
               </div>
 
-              {/* -- FILTRO DE GESTOR -- */}
-              <div className="relative w-full sm:w-48">
-                <select value={gestorFilter} onChange={e=>setGestorFilter(e.target.value)}
-                  className="w-full appearance-none bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 pr-10 py-2.5 text-sm text-[#e8e2d8] outline-none focus:border-amber-500/60 transition-colors cursor-pointer">
-                  <option value="">Todos os gestores</option>
-                  {gestorOptions.map(g=><option key={g} value={g}>{g}</option>)}
-                </select>
-                <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#7a7268]" />
-              </div>
-
-              {/* -- FILTRO DE STATUS -- */}
-              <div className="relative w-full sm:w-48">
-                <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}
-                  className="w-full appearance-none bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 pr-10 py-2.5 text-sm text-[#e8e2d8] outline-none focus:border-amber-500/60 transition-colors cursor-pointer">
-                  <option value="todos">Todos os status</option>
-                  <option value="ativos">Ativos</option>
-                  <option value="sem_camp">Pausados/Sem Camp.</option>
-                  <option value="cancelados">Cancelados</option>
-                </select>
-                <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#7a7268]" />
-              </div>
-
-              {/* -- Linha de controles: Ordenação + View toggle (lado a lado no mobile) -- */}
-              <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-start">
-                <button
-                  onClick={()=>setSortMode(m=>m==="alfabetica"?"personalizada":"alfabetica")}
-                  className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border text-xs font-semibold transition-all ${
-                    sortMode==="personalizada"
-                      ?"bg-amber-500/10 border-amber-500/40 text-amber-400 hover:bg-amber-500/20"
-                      :"bg-[#201f1d] border-[#2e2c29] text-[#7a7268] hover:text-[#e8e2d8] hover:border-[#7a7268]"
-                  }`}>
-                  {sortMode==="alfabetica" ? (
-                    <><svg width="14" height="14" viewBox="0 0 28 16" fill="currentColor"><text x="0" y="13" fontSize="13" fontWeight="bold">AZ</text></svg><span>A-Z</span></>
-                  ) : (
-                    <><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><line x1="8" y1="2" x2="8" y2="14"/><polyline points="4,6 8,2 12,6"/><polyline points="4,10 8,14 12,10" opacity="0.5"/></svg><span>Ordem</span></>
-                  )}
-                </button>
-                <div className="flex items-center bg-[#201f1d] border border-[#2e2c29] rounded-xl p-1">
-                  {([["grid","M 0 0 h7v7H0z M9 0h7v7H9z M0 9h7v7H0z M9 9h7v7H9z"],["list","M0 1h16v2.5H0z M0 6.75h16V9.25H0z M0 12.5h16V15H0z"]] as [ViewMode,string][]).map(([v,d])=>(
-                    <button key={v} onClick={()=>setViewMode(v)}
-                      className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all ${viewMode===v?"bg-amber-500 text-[#111]":"text-[#7a7268] hover:text-[#e8e2d8]"}`}>
-                      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d={d}/></svg>
+              {/* ── Linha 2: Ordenação + View toggle + badges de filtros ativos ── */}
+              <div className="flex items-center justify-between gap-2 w-full">
+                {/* Badges de filtros ativos */}
+                <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                  {trafegoFilter && (
+                    <button
+                      onClick={() => setTrafegoFilter("")}
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-semibold hover:bg-amber-500/20 transition-colors"
+                    >
+                      <Layers size={9} /> {trafegoFilter} <X size={9} />
                     </button>
-                  ))}
+                  )}
+                  {gestorFilter && (
+                    <button
+                      onClick={() => setGestorFilter("")}
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-semibold hover:bg-amber-500/20 transition-colors"
+                    >
+                      <User size={9} /> {gestorFilter} <X size={9} />
+                    </button>
+                  )}
+                  {(trafegoFilter || gestorFilter) && (
+                    <button
+                      onClick={() => { setTrafegoFilter(""); setGestorFilter(""); setClientSearch(""); setStatusFilter("todos"); }}
+                      className="text-[10px] text-[#4a4844] hover:text-red-400 font-semibold transition-colors px-1"
+                    >
+                      Limpar tudo
+                    </button>
+                  )}
+                </div>
+
+                {/* Ordenação + View toggle */}
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => setSortMode(m => m === "alfabetica" ? "personalizada" : "alfabetica")}
+                    className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-all ${
+                      sortMode === "personalizada"
+                        ? "bg-amber-500/10 border-amber-500/40 text-amber-400 hover:bg-amber-500/20"
+                        : "bg-[#201f1d] border-[#2e2c29] text-[#7a7268] hover:text-[#e8e2d8] hover:border-[#7a7268]"
+                    }`}
+                  >
+                    {sortMode === "alfabetica" ? (
+                      <><svg width="14" height="14" viewBox="0 0 28 16" fill="currentColor"><text x="0" y="13" fontSize="13" fontWeight="bold">AZ</text></svg><span>A-Z</span></>
+                    ) : (
+                      <><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><line x1="8" y1="2" x2="8" y2="14"/><polyline points="4,6 8,2 12,6"/><polyline points="4,10 8,14 12,10" opacity="0.5"/></svg><span>Ordem</span></>
+                    )}
+                  </button>
+                  <div className="flex items-center bg-[#201f1d] border border-[#2e2c29] rounded-xl p-1">
+                    {([["grid","M 0 0 h7v7H0z M9 0h7v7H9z M0 9h7v7H0z M9 9h7v7H9z"],["list","M0 1h16v2.5H0z M0 6.75h16V9.25H0z M0 12.5h16V15H0z"]] as [ViewMode,string][]).map(([v,d])=>(
+                      <button key={v} onClick={() => setViewMode(v)}
+                        className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all ${viewMode===v ? "bg-amber-500 text-[#111]" : "text-[#7a7268] hover:text-[#e8e2d8]"}`}>
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d={d}/></svg>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
@@ -2855,7 +3452,7 @@ export default function Home() {
               <div className="flex flex-col items-center justify-center py-20 gap-3 rounded-xl border border-dashed border-[#2e2c29]">
                 <span className="text-4xl text-[#2e2c29] opacity-30"><FileText size={48} /></span>
                 <p className="text-[#7a7268] text-sm text-center px-4">
-                  {clientSearch||gestorFilter?"Nenhum cliente encontrado.":"Nenhum cliente cadastrado. Clique em '+ Novo Cliente'."}
+                  {clientSearch || gestorFilter || trafegoFilter ? "Nenhum cliente encontrado com esses filtros." : "Nenhum cliente cadastrado. Clique em '+ Novo Cliente'."}
                 </p>
               </div>
             ) : viewMode==="grid" ? (
@@ -2913,6 +3510,24 @@ export default function Home() {
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                 <div className="space-y-3 flex-1 min-w-0">
                   <h2 className="text-xl font-extrabold tracking-tight">{clienteAtivo.nome}</h2>
+
+                  {/* ── Barra de Meta Mensal no detalhe ── */}
+                  {clienteAtivo.meta_leads_mensal != null && clienteAtivo.meta_leads_mensal > 0 && (() => {
+                    const leadsDoMes = leadsDoMesPorCliente[clienteAtivo.id] ?? 0;
+                    // Também soma leads do período atual se já carregados
+                    const hoje = new Date();
+                    const mesAtual = hoje.toISOString().slice(0, 7); // "2025-03"
+                    const leadsEsteMes = allLeadsForDashboard.filter(l => {
+                      const d = l.data ?? l.created_at ?? "";
+                      return d.startsWith(mesAtual);
+                    }).length;
+                    const total = Math.max(leadsDoMes, leadsEsteMes);
+                    return (
+                      <div className="mt-1">
+                        <MetaGoalBar meta={clienteAtivo.meta_leads_mensal} leadsDoMes={total} />
+                      </div>
+                    );
+                  })()}
 
                   <div>
                     <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844] mb-1.5">Plataformas</p>
@@ -3003,7 +3618,50 @@ export default function Home() {
                   className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 text-[#111] text-xs font-bold hover:bg-amber-400 active:scale-95 transition-all w-full sm:w-auto">
                   <Plus size={14} /> Novo Lead
                 </button>
-                <ExportBar leads={filteredLeads} clienteNome={clienteAtivo.nome} operacaoNome={operacaoAtiva.nome} onNewLead={()=>setNewLeadOpen(true)}/>
+                <ExportBar
+                  leads={filteredLeads}
+                  clienteNome={clienteAtivo.nome}
+                  operacaoNome={operacaoAtiva.nome}
+                  onNewLead={() => setNewLeadOpen(true)}
+                  periodLabel={
+                    dateFrom && dateTo
+                      ? `${dateFrom.split("-").reverse().join("/")} → ${dateTo.split("-").reverse().join("/")}`
+                      : periodPreset === "max" ? "Todo o período"
+                      : periodPreset === "7d" ? "Últimos 7 dias"
+                      : periodPreset === "15d" ? "Últimos 15 dias"
+                      : periodPreset === "30d" ? "Últimos 30 dias"
+                      : periodPreset === "90d" ? "Últimos 90 dias"
+                      : "Período selecionado"
+                  }
+                  dashboard={(() => {
+                    if (!filteredLeads.length) return null;
+                    const byPlat: Record<string, number> = {};
+                    for (const l of filteredLeads) { const k = l.plataforma || "Sem plataforma"; byPlat[k] = (byPlat[k] ?? 0) + 1; }
+                    const leadsPorPlataforma = Object.entries(byPlat).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value }));
+                    const byDate: Record<string, number> = {};
+                    const byDateLabel: Record<string, string> = {};
+                    for (const l of filteredLeads) {
+                      const raw = l.data ?? "";
+                      const dmy = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+                      const ymd = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+                      let label = "—"; let sortKey = "9999-99-99";
+                      if (dmy) { label = `${dmy[1]}/${dmy[2]}/${dmy[3].slice(2)}`; sortKey = `${dmy[3]}-${dmy[2]}-${dmy[1]}`; }
+                      else if (ymd) { label = `${ymd[3]}/${ymd[2]}/${ymd[1].slice(2)}`; sortKey = raw.slice(0, 10); }
+                      byDate[sortKey] = (byDate[sortKey] ?? 0) + 1; byDateLabel[sortKey] = label;
+                    }
+                    const leadsPorData = Object.keys(byDate).sort().map(k => ({ data: byDateLabel[k] ?? k, leads: byDate[k] }));
+                    return { leadsPorPlataforma, leadsPorData, totalLeads: filteredLeads.length };
+                  })()}
+                  radar={clienteAtivo.meta_ad_account_id && metaInsights[clienteAtivo.id]?.campaigns?.length
+                    ? {
+                        spend: metaInsights[clienteAtivo.id].spend,
+                        cpl: metaInsights[clienteAtivo.id].cpl,
+                        total_leads: metaInsights[clienteAtivo.id].total_leads,
+                        currency: metaInsights[clienteAtivo.id].currency,
+                        campaigns: metaInsights[clienteAtivo.id].campaigns,
+                      }
+                    : null}
+                />
               </div>
             </div>
 
@@ -3016,6 +3674,8 @@ export default function Home() {
                 token={clienteAtivo.meta_access_token ?? null}
                 data={metaInsights[clienteAtivo.id] ?? null}
                 onFetch={fetchMetaInsights}
+                verbaMeta={clienteAtivo.verba_meta_ads ?? null}
+                verbaGls={clienteAtivo.verba_gls ?? null}
               />
             )}
 
@@ -3060,9 +3720,15 @@ export default function Home() {
                       onClick={()=>{
                         setPeriodPreset(p.key);
                         if (p.key!=="custom") {
-                          const today=new Date(); const fmt=(d:Date)=>d.toISOString().slice(0,10);
+                          const fmt=(d:Date)=>d.toISOString().slice(0,10);
                           if (p.key==="max"){setDateFrom("");setDateTo("");}
-                          else{const days=p.key==="7d"?7:p.key==="15d"?15:p.key==="30d"?30:90;const from=new Date(today);from.setDate(today.getDate()-(days-1));setDateFrom(fmt(from));setDateTo(fmt(today));}
+                          else{
+                            // Ontem como data final — exclui o dia de hoje (dados incompletos)
+                            const yesterday=new Date(); yesterday.setDate(yesterday.getDate()-1);
+                            const days=p.key==="7d"?7:p.key==="15d"?15:p.key==="30d"?30:90;
+                            const from=new Date(yesterday); from.setDate(yesterday.getDate()-(days-1));
+                            setDateFrom(fmt(from)); setDateTo(fmt(yesterday));
+                          }
                         }
                       }}
                       className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
