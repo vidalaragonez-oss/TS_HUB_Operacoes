@@ -190,14 +190,15 @@ function detectSource(fileName: string, headers: string[]): "gls"|"meta"|"elemen
 }
 
 const KEYWORD_MAP: Record<string, string[]> = {
-  nome:      ['fullname', 'nome', 'name', 'customer', 'customername', 'cliente', 'firstname', 'lastname', 'personalinformation'],
-  email:     ['email', 'emailaddress', 'address'],
-  telefone:  ['phonenumber', 'phone', 'telefone', 'celular', 'whatsapp', 'customerphone'],
-  data:      ['createdtime', 'date', 'data', 'leadreceived', 'submissiondate', 'createdat', 'datacriacao'],
-  plataforma:['platform', 'plataforma', 'source', 'origem', 'formname'],
+  nome:         ['fullname', 'nome', 'name', 'customer', 'customername', 'cliente', 'firstname', 'lastname', 'personalinformation'],
+  email:        ['email', 'emailaddress', 'address'],
+  telefone:     ['phonenumber', 'phone', 'telefone', 'celular', 'whatsapp', 'customerphone'],
+  data:         ['createdtime', 'date', 'data', 'leadreceived', 'submissiondate', 'createdat', 'datacriacao'],
+  plataforma:   ['platform', 'plataforma', 'source', 'origem', 'formname'],
+  charge_status:['chargestatus', 'charge', 'status_pagamento'],
 };
 
-const NOISE_KEYWORDS = ['whatcanwedo', 'question', 'pergunta', 'howdidyou', 'message', 'searchintent', 'location', 'chargestatus', 'lastactivity', 'jobtype', 'leadtype', 'anyotherinformation'];
+const NOISE_KEYWORDS = ['whatcanwedo', 'question', 'pergunta', 'howdidyou', 'message', 'searchintent', 'location', 'lastactivity', 'jobtype', 'leadtype', 'anyotherinformation'];
 
 const GLS_NOISE_NAMES = new Set([
   'deepclean','standardclean','moveoutclean','moveinclean','recurringclean','onetimeclean',
@@ -285,6 +286,16 @@ function parseGeneric(rows: Record<string,any>[], platformOverride?: string, sou
       }
       if (!lead.nome || isGlsNoiseName(lead.nome)) {
         lead.nome = "Lead não identificado";
+      }
+      // Captura Charge Status diretamente pelo header original
+      if (!lead.charge_status) {
+        for (const header of headers) {
+          const normalized = normalizeH(header);
+          if (normalized === "chargestatus" || normalized === "charge") {
+            const val = String(r[header] ?? "").trim();
+            if (val) { lead.charge_status = val; break; }
+          }
+        }
       }
     }
 
@@ -947,6 +958,17 @@ function ExportBar({
 
 function LeadMobileCard({ lead, selected, onToggle }: { lead: Lead; selected: boolean; onToggle: () => void }) {
   const platStyle = getPlatformBadgeStyle(lead.plataforma || "");
+  const isGls = (lead.plataforma || "").toLowerCase().includes("google local") || (lead.plataforma || "").toLowerCase().includes("gls");
+
+  function getChargeStatusBadge(status: string) {
+    const s = status.toLowerCase().trim();
+    if (s === "charged")
+      return "bg-emerald-500/15 text-emerald-400 border-emerald-500/30";
+    if (s === "not charged")
+      return "bg-red-500/15 text-red-400 border-red-500/30";
+    return "bg-amber-500/15 text-amber-400 border-amber-500/30";
+  }
+
   return (
     <div className={`rounded-xl border p-3.5 transition-all ${selected ? "border-amber-500/50 bg-amber-500/5" : "border-[#2e2c29] bg-[#1a1917]"}`}>
       <div className="flex items-start gap-2.5">
@@ -959,11 +981,18 @@ function LeadMobileCard({ lead, selected, onToggle }: { lead: Lead; selected: bo
         <div className="flex-1 min-w-0 space-y-2">
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm font-semibold text-[#e8e2d8] truncate">{lead.nome || "—"}</p>
-            {lead.plataforma && (
-              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border whitespace-nowrap shrink-0 ${platStyle}`}>
-                {lead.plataforma}
-              </span>
-            )}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {isGls && lead.charge_status && (
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold border whitespace-nowrap ${getChargeStatusBadge(lead.charge_status)}`}>
+                  {lead.charge_status}
+                </span>
+              )}
+              {lead.plataforma && (
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border whitespace-nowrap ${platStyle}`}>
+                  {lead.plataforma}
+                </span>
+              )}
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
             <div>
@@ -1150,6 +1179,7 @@ function LeadAccordion({ leads, paginatedLeads, search, platFilter, dateFrom, da
           // Mostrar apenas leads desta categoria que estão na página atual
           const itemsInThisPage = items.filter(l => paginatedLeads.some(pl => pl.id === l.id))
                                        .sort((a,b)=>parseDateForSort(b.data)-parseDateForSort(a.data));
+          const isGlsGroup = plat.toLowerCase().includes("google local") || plat.toLowerCase().includes("gls");
 
           return (
             <div key={plat} className={`rounded-xl border overflow-hidden ${style.header}`}>
@@ -1165,21 +1195,22 @@ function LeadAccordion({ leads, paginatedLeads, search, platFilter, dateFrom, da
                 <div className="divide-y divide-[#2e2c29]/50">
                   {/* Cabeçalho fixo alinhado com as colunas de dados */}
                   <div className="w-full overflow-x-auto pb-2">
-                  <div className="flex items-center gap-3 px-4 py-2 bg-[#111010]/60 min-w-[800px]">
+                  <div className={`flex items-center gap-3 px-4 py-2 bg-[#111010]/60 ${isGlsGroup ? "min-w-[920px]" : "min-w-[800px]"}`}>
                     <div className="w-3.5 h-3.5 shrink-0" />
-                    <div className="flex-1 min-w-0 grid grid-cols-[minmax(150px,_2fr)_minmax(130px,_1fr)_minmax(150px,_2fr)_minmax(100px,_1fr)] gap-x-4">
+                    <div className={`flex-1 min-w-0 grid gap-x-4 ${isGlsGroup ? "grid-cols-[minmax(150px,_2fr)_minmax(130px,_1fr)_minmax(150px,_2fr)_minmax(100px,_1fr)_minmax(110px,_1fr)]" : "grid-cols-[minmax(150px,_2fr)_minmax(130px,_1fr)_minmax(150px,_2fr)_minmax(100px,_1fr)]"}`}>
                       <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Nome</p>
                       <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Telefone</p>
                       <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">E-mail</p>
                       <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Data</p>
+                      {isGlsGroup && <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Cobrança</p>}
                     </div>
                   </div>
                   {itemsInThisPage.length > 0 ? (
                     itemsInThisPage.map(l=>(
-                      <div key={l.id} className="flex items-start gap-3 px-4 py-3 hover:bg-[#201f1d]/40 transition-colors min-w-[800px]">
+                      <div key={l.id} className={`flex items-start gap-3 px-4 py-3 hover:bg-[#201f1d]/40 transition-colors ${isGlsGroup ? "min-w-[920px]" : "min-w-[800px]"}`}>
                         <input type="checkbox" checked={selected.has(l.id)} onChange={()=>toggleSelect(l.id)}
                           className="mt-0.5 w-3.5 h-3.5 accent-amber-500 rounded cursor-pointer shrink-0"/>
-                        <div className="flex-1 min-w-0 grid grid-cols-[minmax(150px,_2fr)_minmax(130px,_1fr)_minmax(150px,_2fr)_minmax(100px,_1fr)] gap-x-4 gap-y-1">
+                        <div className={`flex-1 min-w-0 grid gap-x-4 gap-y-1 ${isGlsGroup ? "grid-cols-[minmax(150px,_2fr)_minmax(130px,_1fr)_minmax(150px,_2fr)_minmax(100px,_1fr)_minmax(110px,_1fr)]" : "grid-cols-[minmax(150px,_2fr)_minmax(130px,_1fr)_minmax(150px,_2fr)_minmax(100px,_1fr)]"}`}>
                           <div>
                             <p className="text-sm text-[#e8e2d8] truncate">{l.nome||"—"}</p>
                           </div>
@@ -1192,6 +1223,23 @@ function LeadAccordion({ leads, paginatedLeads, search, platFilter, dateFrom, da
                           <div>
                             <p className="text-sm text-[#e8e2d8]">{l.data||"—"}</p>
                           </div>
+                          {isGlsGroup && (
+                            <div>
+                              {l.charge_status ? (
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold border whitespace-nowrap ${
+                                  l.charge_status.toLowerCase() === "charged"
+                                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                                    : l.charge_status.toLowerCase() === "not charged"
+                                    ? "bg-red-500/15 text-red-400 border-red-500/30"
+                                    : "bg-amber-500/15 text-amber-400 border-amber-500/30"
+                                }`}>
+                                  {l.charge_status}
+                                </span>
+                              ) : (
+                                <span className="text-sm text-[#4a4844]">—</span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))
