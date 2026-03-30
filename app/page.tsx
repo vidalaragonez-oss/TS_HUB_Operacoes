@@ -2593,7 +2593,13 @@ export default function Home() {
           .from("gestores").select("id, nome, role, operacao_id, user_id").eq("user_id", user.id).single();
         if (cancelled) return;
         if (gestorError || !gestorData) { setAuthError("Acesso não autorizado. Contate o administrador."); return; }
-        setPerfil(gestorData as GestorPerfil);
+        // Normaliza operacao_id: filtra nulls e garante array limpo
+        const rawPerfil = gestorData as Record<string, unknown>;
+        const rawOpId = rawPerfil.operacao_id;
+        const cleanOpId: string[] = Array.isArray(rawOpId)
+          ? (rawOpId as unknown[]).filter((v): v is string => typeof v === "string" && v.length > 0)
+          : [];
+        setPerfil({ ...(rawPerfil as GestorPerfil), operacao_id: cleanOpId.length > 0 ? cleanOpId : null });
       } catch (err) {
         if (!cancelled) { console.error("Bootstrap error:", err); setAuthError("Erro ao verificar acesso. Tente novamente."); }
       } finally {
@@ -2633,15 +2639,17 @@ export default function Home() {
   const fetchOperacoes = async (p: GestorPerfil) => {
     setOperacoesLoading(true);
     try {
-      // Fallback: gestor sem operações associadas — não quebra a app
-      if (p.role === "gestor" && (!p.operacao_id || p.operacao_id.length === 0)) {
+      // Admin: busca todas as operações
+      // Gestor: filtra pelas operações associadas ao perfil
+      const isGestorSemOp = p.role === "gestor" && (!p.operacao_id || p.operacao_id.length === 0);
+      if (isGestorSemOp) {
         setOperacoes([]);
         toast.error("Seu usuário não está associado a nenhuma operação. Contate o administrador.");
         return;
       }
 
       let query = supabase.from("operacoes").select("*").order("created_at", { ascending: true });
-      if (p.role === "gestor" && p.operacao_id) {
+      if (p.role === "gestor" && p.operacao_id && p.operacao_id.length > 0) {
         query = query.in("id", p.operacao_id);
       }
 
