@@ -1321,14 +1321,6 @@ function ClientActionMenu({ onEdit, onDeactivate, onDelete, isInactive }: {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ─── Meta status dot ─────────────────────────────────────────────────────────
-type OtherCampaignDetail = {
-  name: string;
-  objective: string;
-  result_label: string;
-  result_count: number;
-  spend: number;
-};
-
 type MetaInsightData = {
   account_status: number;
   spend: number;
@@ -1337,18 +1329,24 @@ type MetaInsightData = {
   total_leads: number;
   cpl: number;
   currency: string;
-  // Formulário
+  // Por objetivo
   form_leads: number;
   form_spend: number;
   form_cpl: number;
-  // Mensagens
   msg_leads: number;
   msg_spend: number;
   msg_cpl: number;
-  // Outros Objetivos (tráfego, awareness, engajamento, etc.)
-  other_spend: number;
-  other_count: number;
-  other_campaigns: OtherCampaignDetail[];
+  // Por campanha
+  campaigns: {
+    campaign_name: string;
+    objective: string;
+    objective_label: string;
+    spend: string;
+    form_leads: number;
+    msg_leads: number;
+    form_cpl: number;
+    msg_cpl: number;
+  }[];
   loading: boolean;
   error?: string;
 } | null;
@@ -1385,50 +1383,23 @@ function MetaDot({ accountId, data, onRefresh }: {
   );
 }
 
-// MetaSummary — Visão Externa (lista de clientes)
-// Mostra apenas Formulário + Mensagens (dados dos últimos 7 dias).
-// "Outros Objetivos" são omitidos intencionalmente aqui.
 function MetaSummary({ data }: { data: MetaInsightData }) {
   if (!data || data.loading || data.error || !data.account_status) return null;
-
-  const fmt    = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const fmtInt = (v: number) => v.toLocaleString("pt-BR");
-  const symbol = (data.currency ?? "BRL") === "USD" ? "US$" : "R$";
-
-  // Só soma form + msg — gasto total "de negócio"
-  const bizLeads = (data.form_leads ?? 0) + (data.msg_leads ?? 0);
-  const bizSpend = (data.form_spend ?? 0) + (data.msg_spend ?? 0);
-  const bizCpl   = bizLeads > 0 ? bizSpend / bizLeads : 0;
-
-  // Se não houve nenhum gasto relevante, não mostra nada
-  if (bizSpend === 0 && data.spend === 0) return null;
-
-  // Gasto exibido: gasto de negócio se existir, caso contrário total (ex: só "outros")
-  const displaySpend = bizSpend > 0 ? bizSpend : data.spend;
-
+  const fmt = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const symbol = (data.currency ?? "BRL") === "USD" ? "$" : "R$";
   return (
-    <div className="flex items-center gap-1.5 flex-wrap mt-1">
-      {/* Gasto */}
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#201f1d] border border-[#2e2c29] text-[#7a7268]">
-        <Activity size={9} className="text-[#4a4844]" />
-        {symbol} {fmt(displaySpend)}
+    <div className="flex items-center gap-2 flex-wrap mt-1">
+      <span className="text-[9px] font-semibold text-[#4a4844]">
+        Gasto: <span className="text-[#7a7268]">{symbol} {fmt(data.spend)}</span>
       </span>
-
-      {/* Leads — só aparece se houver leads reais */}
-      {bizLeads > 0 && (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/8 border border-blue-500/25 text-blue-400">
-          <Target size={9} />
-          {fmtInt(bizLeads)} leads
-        </span>
-      )}
-
-      {/* CPL — só aparece se houver leads */}
-      {bizLeads > 0 && (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/8 border border-emerald-500/25 text-emerald-400">
-          <Zap size={9} />
-          CPL {symbol} {fmt(bizCpl)}
-        </span>
-      )}
+      <span className="text-[#2e2c29]">·</span>
+      <span className="text-[9px] font-semibold text-[#4a4844]">
+        Leads: <span className="text-[#7a7268]">{data.total_leads}</span>
+      </span>
+      <span className="text-[#2e2c29]">·</span>
+      <span className="text-[9px] font-semibold text-[#4a4844]">
+        CPL: <span className="text-[#7a7268]">{symbol} {fmt(data.cpl)}</span>
+      </span>
     </div>
   );
 }
@@ -1519,6 +1490,7 @@ function ClientCard({ client, onSelect, onEdit, onDeactivate, onDelete, onToggle
           <span className={`inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border ${st.badge}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`}/>{st.label}
           </span>
+          <MetaSummary data={metaData} />
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <ClientActionMenu onEdit={onEdit} onDeactivate={onDeactivate} onDelete={onDelete} isInactive={isInactive}/>
@@ -2092,13 +2064,11 @@ function renderRadar({
   verbaGls?: number | null;
 }) {
   const fmt = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const fmtInt = (v: number) => v.toLocaleString("pt-BR");
-  const symbol = !data || (data.currency ?? "BRL") === "BRL" ? "R$" : "US$";
+  const symbol = !data || (data.currency ?? "BRL") === "BRL" ? "R$" : "$";
 
-  const hasForm  = data && !data.loading && !data.error && data.form_leads > 0;
-  const hasMsg   = data && !data.loading && !data.error && data.msg_leads  > 0;
-  const hasOther = data && !data.loading && !data.error && (data.other_spend ?? 0) > 0;
-  const hasData  = data && !data.loading && !data.error && data.account_status >= 1;
+  const hasForm = data && !data.loading && !data.error && data.form_leads > 0;
+  const hasMsg  = data && !data.loading && !data.error && data.msg_leads  > 0;
+  const hasData = data && !data.loading && !data.error && data.account_status >= 1;
 
   return (
     <div className="rounded-xl border border-blue-500/20 bg-[#111827]/60 p-4 space-y-3">
@@ -2160,20 +2130,29 @@ function renderRadar({
         </div>
       )}
 
-      {/* Dados: bloco consolidado (nenhum objetivo de lead/msg) */}
-      {hasData && !hasForm && !hasMsg && !hasOther && (
-        <div className="grid grid-cols-3 gap-3">
+      {/* Dados: resumo consolidado (único bloco de totais) */}
+      {hasData && (
+        <div className="flex items-center gap-4 flex-wrap pb-2 border-b border-[#2e2c29]">
           <div className="flex flex-col gap-0.5">
             <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Gasto Total</p>
             <p className="text-sm font-extrabold text-[#e8e2d8]">{symbol} {fmt(data!.spend)}</p>
           </div>
+          <div className="w-px h-8 bg-[#2e2c29] shrink-0" />
           <div className="flex flex-col gap-0.5">
             <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">CPL Médio</p>
             <p className="text-sm font-extrabold text-[#e8e2d8]">{symbol} {fmt(data!.cpl)}</p>
           </div>
+          <div className="w-px h-8 bg-[#2e2c29] shrink-0" />
           <div className="flex flex-col gap-0.5">
-            <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Leads</p>
+            <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Total Leads</p>
             <p className="text-sm font-extrabold text-[#e8e2d8]">{data!.total_leads}</p>
+            {(data!.form_leads > 0 || data!.msg_leads > 0) && (
+              <p className="text-[9px] text-[#7a7268] font-medium">
+                {data!.form_leads > 0 && <span className="text-blue-400/80">{data!.form_leads} form</span>}
+                {data!.form_leads > 0 && data!.msg_leads > 0 && <span className="text-[#4a4844]"> · </span>}
+                {data!.msg_leads > 0 && <span className="text-emerald-400/80">{data!.msg_leads} msg</span>}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -2279,81 +2258,97 @@ function renderRadar({
             </div>
           )}
 
-          {/* Bloco: Mensagens */}
-          {hasMsg && (
-            <div className="flex items-center gap-3 rounded-lg bg-emerald-500/8 border border-emerald-500/15 px-3 py-2.5">
-              <div className="shrink-0">
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase tracking-wide">
-                  Mensagens
-                </span>
-              </div>
-              <div className="flex items-center gap-4 flex-1 flex-wrap">
-                <div>
-                  <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Conversas</p>
-                  <p className="text-xs font-extrabold text-[#e8e2d8]">{fmtInt(data!.msg_leads)}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Gasto</p>
-                  <p className="text-xs font-extrabold text-[#e8e2d8]">{symbol} {fmt(data!.msg_spend)}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">CPL</p>
-                  <p className="text-xs font-extrabold text-emerald-300">{symbol} {fmt(data!.msg_cpl)}</p>
-                </div>
-              </div>
+      {/* Tabela por campanha */}
+      {hasData && data!.campaigns && data!.campaigns.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844] flex items-center gap-1.5">
+            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" className="text-[#4a4844]">
+              <path d="M0 2h16v2H0zM0 7h16v2H0zM0 12h16v2H0z"/>
+            </svg>
+            Campanhas
+          </p>
+          <div className="rounded-lg border border-[#2e2c29] overflow-hidden">
+            {/* Header */}
+            <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-3 px-3 py-1.5 bg-[#111010]/80 border-b border-[#2e2c29]">
+              <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Campanha</p>
+              <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844] w-20">Objetivo</p>
+              <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844] text-right w-16">Gasto</p>
+              <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844] text-right w-12">Leads</p>
+              <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844] text-right w-16">CPL</p>
             </div>
-          )}
-
-          {/* Bloco: Outros Objetivos — tráfego, awareness, engajamento, etc. */}
-          {hasOther && (
-            <div className="rounded-lg bg-[#201f1d] border border-[#2e2c29] overflow-hidden">
-              {/* Cabeçalho do bloco */}
-              <div className="flex items-center justify-between px-3 py-2 border-b border-[#2e2c29]">
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/25 uppercase tracking-wide">
-                  Outros Objetivos
-                </span>
-                <div className="flex items-center gap-3">
-                  <div className="text-right">
-                    <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Gasto</p>
-                    <p className="text-xs font-extrabold text-[#e8e2d8]">{symbol} {fmt(data!.other_spend)}</p>
+            {/* Rows */}
+            {data!.campaigns
+              .slice()
+              .sort((a, b) => parseFloat(b.spend) - parseFloat(a.spend))
+              .map((camp, i) => {
+                const campLeads = camp.form_leads + camp.msg_leads;
+                const campCpl   = camp.form_cpl || camp.msg_cpl || 0;
+                const hasLeads  = campLeads > 0;
+                // Badge color por objetivo
+                const objColors: Record<string, string> = {
+                  OUTCOME_LEADS:         "bg-blue-500/20 text-blue-300 border-blue-500/30",
+                  OUTCOME_ENGAGEMENT:    "bg-purple-500/20 text-purple-300 border-purple-500/30",
+                  OUTCOME_AWARENESS:     "bg-amber-500/20 text-amber-300 border-amber-500/30",
+                  OUTCOME_TRAFFIC:       "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
+                  OUTCOME_SALES:         "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+                  OUTCOME_APP_PROMOTION: "bg-orange-500/20 text-orange-300 border-orange-500/30",
+                  MESSAGES:              "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+                };
+                const badgeCls = objColors[camp.objective] ?? "bg-[#2e2c29] text-[#7a7268] border-[#3a3835]";
+                return (
+                  <div key={i}
+                    className={`grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-3 px-3 py-2 items-center ${
+                      i % 2 === 0 ? "bg-[#111010]/40" : "bg-transparent"
+                    } border-b border-[#2e2c29]/50 last:border-0`}>
+                    <div className="min-w-0">
+                      <p className="text-[10px] text-[#c8c0b4] truncate font-medium leading-tight" title={camp.campaign_name}>
+                        {camp.campaign_name}
+                      </p>
+                      {hasLeads && (
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          {camp.form_leads > 0 && (
+                            <span className="text-[8px] font-bold text-blue-400/70">{camp.form_leads} form</span>
+                          )}
+                          {camp.msg_leads > 0 && (
+                            <span className="text-[8px] font-bold text-emerald-400/70">{camp.msg_leads} msg</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap w-20 text-center ${badgeCls}`}>
+                      {camp.objective_label || "—"}
+                    </span>
+                    <p className="text-[10px] font-semibold text-[#e8e2d8] text-right w-16 tabular-nums">
+                      {symbol} {parseFloat(camp.spend).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                    <p className={`text-[10px] font-semibold text-right w-12 tabular-nums ${hasLeads ? "text-[#e8e2d8]" : "text-[#4a4844]"}`}>
+                      {hasLeads ? campLeads : "—"}
+                    </p>
+                    <p className={`text-[10px] font-semibold text-right w-16 tabular-nums ${hasLeads && campCpl > 0 ? "text-amber-400" : "text-[#4a4844]"}`}>
+                      {hasLeads && campCpl > 0
+                        ? `${symbol} ${campCpl.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                        : "—"}
+                    </p>
                   </div>
-                  {(data!.other_count ?? 0) > 0 && (
-                    <div className="text-right">
-                      <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Resultados</p>
-                      <p className="text-xs font-extrabold text-[#e8e2d8]">{fmtInt(data!.other_count)}</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-              {/* Linhas por campanha */}
-              <div className="divide-y divide-[#1a1917]">
-                {(data!.other_campaigns ?? []).map((c, i) => (
-                  <div key={i} className="flex items-center justify-between gap-2 px-3 py-2">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[10px] font-semibold text-[#c8c0b4] truncate">{c.name}</p>
-                      <p className="text-[9px] text-[#4a4844] truncate">{c.objective.replace("OUTCOME_", "").replace(/_/g, " ")}</p>
-                    </div>
-                    <div className="flex items-center gap-3 shrink-0 text-right">
-                      <div>
-                        <p className="text-[9px] font-bold text-[#4a4844]">{c.result_label}</p>
-                        <p className="text-[10px] font-extrabold text-amber-300">{fmtInt(c.result_count)}</p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] font-bold text-[#4a4844]">Gasto</p>
-                        <p className="text-[10px] font-extrabold text-[#7a7268]">{symbol} {fmt(c.spend)}</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                );
+              })}
+            {/* Footer totals */}
+            <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 px-3 py-2 bg-[#201f1d] border-t border-[#2e2c29]">
+              <p className="text-[9px] font-bold uppercase tracking-widest text-[#7a7268]">Total</p>
+              <p className="text-[10px] font-extrabold text-amber-400 text-right w-16 tabular-nums">
+                {symbol} {data!.spend.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </p>
+              <p className="text-[10px] font-extrabold text-amber-400 text-right w-12 tabular-nums">
+                {data!.total_leads > 0 ? data!.total_leads : "—"}
+              </p>
+              <p className="text-[10px] font-extrabold text-amber-400 text-right w-16 tabular-nums">
+                {data!.cpl > 0
+                  ? `${symbol} ${data!.cpl.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                  : "—"}
+              </p>
             </div>
-          )}
+          </div>
         </div>
-      )}
-
-      {/* Sem dados */}
-      {data && !data.loading && !data.error && data.account_status >= 1 && data.total_leads === 0 && data.spend === 0 && (data.other_spend ?? 0) === 0 && (
-        <p className="text-[10px] text-[#4a4844] italic text-center py-1">Nenhum dado para o período selecionado.</p>
       )}
     </div>
   );
@@ -2534,6 +2529,16 @@ export default function Home() {
     msg_leads: number;
     msg_spend: number;
     msg_cpl: number;
+    campaigns: {
+      campaign_name: string;
+      objective: string;
+      objective_label: string;
+      spend: string;
+      form_leads: number;
+      msg_leads: number;
+      form_cpl: number;
+      msg_cpl: number;
+    }[];
     loading: boolean;
     error?: string;
   }>>({});
@@ -2860,7 +2865,7 @@ export default function Home() {
     since?: string,
     until?: string,
   ) => {
-    const zero = { account_status: 0, spend: 0, leads: 0, messages: 0, total_leads: 0, cpl: 0, currency: "BRL", form_leads: 0, form_spend: 0, form_cpl: 0, msg_leads: 0, msg_spend: 0, msg_cpl: 0, other_spend: 0, other_count: 0, other_campaigns: [] as OtherCampaignDetail[] };
+    const zero = { account_status: 0, spend: 0, leads: 0, messages: 0, total_leads: 0, cpl: 0, currency: "BRL", form_leads: 0, form_spend: 0, form_cpl: 0, msg_leads: 0, msg_spend: 0, msg_cpl: 0, campaigns: [] as { campaign_name: string; objective: string; objective_label: string; spend: string; form_leads: number; msg_leads: number; form_cpl: number; msg_cpl: number }[] };
     setMetaInsights(prev => ({ ...prev, [clienteId]: { ...zero, loading: true } }));
     try {
       const params = new URLSearchParams({ action: "insights", account_id: accountId });
@@ -2869,7 +2874,7 @@ export default function Home() {
         params.set("since", since);
         params.set("until", until);
       } else {
-        // Padrão dos badges externos: últimos 7 dias
+        // Padrão: últimos 7 dias
         const today = new Date();
         const from  = new Date(today);
         from.setDate(today.getDate() - 6);
@@ -2883,29 +2888,27 @@ export default function Home() {
       setMetaInsights(prev => ({
         ...prev,
         [clienteId]: {
-          account_status:  json.account_status,
-          spend:           json.spend,
-          leads:           json.leads           ?? 0,
-          messages:        json.messages        ?? 0,
-          total_leads:     json.total_leads,
-          cpl:             json.cpl,
-          currency:        json.currency        ?? "BRL",
-          form_leads:      json.form_leads      ?? 0,
-          form_spend:      json.form_spend      ?? 0,
-          form_cpl:        json.form_cpl        ?? 0,
-          msg_leads:       json.msg_leads       ?? 0,
-          msg_spend:       json.msg_spend       ?? 0,
-          msg_cpl:         json.msg_cpl         ?? 0,
-          other_spend:     json.other_spend     ?? 0,
-          other_count:     json.other_count     ?? 0,
-          other_campaigns: json.other_campaigns ?? [],
-          loading:         false,
+          account_status: json.account_status,
+          spend:          json.spend,
+          leads:          json.leads          ?? 0,
+          messages:       json.messages       ?? 0,
+          total_leads:    json.total_leads,
+          cpl:            json.cpl,
+          currency:       json.currency       ?? "BRL",
+          form_leads:     json.form_leads     ?? 0,
+          form_spend:     json.form_spend     ?? 0,
+          form_cpl:       json.form_cpl       ?? 0,
+          msg_leads:      json.msg_leads      ?? 0,
+          msg_spend:      json.msg_spend      ?? 0,
+          msg_cpl:        json.msg_cpl        ?? 0,
+          campaigns:      json.campaigns      ?? [],
+          loading:        false,
         },
       }));
     } catch (err: unknown) {
       setMetaInsights(prev => ({
         ...prev,
-        [clienteId]: { account_status: -1, spend: 0, leads: 0, messages: 0, total_leads: 0, cpl: 0, currency: "BRL", form_leads: 0, form_spend: 0, form_cpl: 0, msg_leads: 0, msg_spend: 0, msg_cpl: 0, other_spend: 0, other_count: 0, other_campaigns: [], loading: false, error: (err as Error).message },
+        [clienteId]: { account_status: -1, spend: 0, leads: 0, messages: 0, total_leads: 0, cpl: 0, currency: "BRL", form_leads: 0, form_spend: 0, form_cpl: 0, msg_leads: 0, msg_spend: 0, msg_cpl: 0, campaigns: [], loading: false, error: (err as Error).message },
       }));
     }
   };
