@@ -3268,7 +3268,7 @@ export default function Home() {
                     onChange={e => setTrafegoFilter(e.target.value)}
                     className={`w-full appearance-none rounded-xl pl-8 pr-8 py-2.5 text-sm outline-none transition-colors cursor-pointer border ${
                       trafegoFilter
-                        ? "bg-amber-500/8 border-amber-500/40 text-amber-300 focus:border-amber-500/70"
+                        ? "bg-[#201f1d] border-amber-500/40 text-amber-300 focus:border-amber-500/70"
                         : "bg-[#201f1d] border-[#2e2c29] text-[#e8e2d8] focus:border-amber-500/60"
                     }`}
                   >
@@ -3288,7 +3288,7 @@ export default function Home() {
                     onChange={e => setGestorFilter(e.target.value)}
                     className={`w-full appearance-none rounded-xl pl-8 pr-8 py-2.5 text-sm outline-none transition-colors cursor-pointer border ${
                       gestorFilter
-                        ? "bg-amber-500/8 border-amber-500/40 text-amber-300 focus:border-amber-500/70"
+                        ? "bg-[#201f1d] border-amber-500/40 text-amber-300 focus:border-amber-500/70"
                         : "bg-[#201f1d] border-[#2e2c29] text-[#e8e2d8] focus:border-amber-500/60"
                     }`}
                   >
