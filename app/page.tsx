@@ -1464,7 +1464,63 @@ function MetaSummary({ data }: { data: MetaInsightData }) {
   );
 }
 
-// ─── MetaGoalBar — Barra de Progresso de Meta Mensal ─────────────────────────
+// ─── calcPacing — lógica centralizada de pacing (D-1 como base) ──────────────
+function calcPacing(meta: number, leadsDoMes: number) {
+  const hoje = new Date();
+  const ano  = hoje.getFullYear();
+  const mes  = hoje.getMonth(); // 0-based
+
+  // Total de dias do mês vigente (considera anos bissextos automaticamente)
+  const diasNoMes = new Date(ano, mes + 1, 0).getDate();
+
+  // D-1: ontem é a base consolidada.
+  // Se hoje for dia 1 → leads do mês atual = 0 (novo mês), reset visual.
+  const diaHoje  = hoje.getDate();
+  const diaOntem = diaHoje === 1 ? 0 : diaHoje - 1;
+
+  // Meta proporcional até ontem (D-1)
+  const metaEsperadaHoje = (meta / diasNoMes) * diaOntem;
+
+  // % da barra: progresso real sobre a meta total (capped em 100%)
+  const pct        = meta > 0 ? Math.min((leadsDoMes / meta) * 100, 100) : 0;
+  const pctDisplay = Math.round(pct);
+
+  // Posição do marcador "onde deveria estar" na barra (0–99%)
+  const marcadorPct = Math.min((diaOntem / diasNoMes) * 100, 99);
+
+  // Ritmo: desvio % de leadsReais em relação à meta proporcional D-1
+  // Ex: +5 = 5% acima do ritmo; -12 = 12% abaixo
+  let ritmo = 0;
+  if (metaEsperadaHoje > 0) {
+    ritmo = Math.round(((leadsDoMes - metaEsperadaHoje) / metaEsperadaHoje) * 100);
+  } else if (diaHoje === 1) {
+    ritmo = 0; // reset visual do novo mês
+  } else {
+    ritmo = leadsDoMes > 0 ? 100 : 0;
+  }
+
+  // Saúde: baseada no ratio leads reais / meta esperada D-1
+  const ratio: number =
+    metaEsperadaHoje > 0 ? leadsDoMes / metaEsperadaHoje :
+    diaHoje === 1 ? 1 :
+    leadsDoMes > 0 ? 2 : 1;
+
+  const saude: "verde" | "amarelo" | "vermelho" =
+    ratio >= 1   ? "verde"    :
+    ratio >= 0.8 ? "amarelo"  :
+                   "vermelho";
+
+  const paleta = {
+    verde:    { bar: "bg-emerald-500", glow: "shadow-[0_0_8px_rgba(16,185,129,0.5)]",  badge: "bg-emerald-500/10 border-emerald-500/25 text-emerald-400", ritmo: "text-emerald-400" },
+    amarelo:  { bar: "bg-amber-400",   glow: "shadow-[0_0_8px_rgba(251,191,36,0.4)]",   badge: "bg-amber-500/10 border-amber-500/25 text-amber-400",   ritmo: "text-amber-400"   },
+    vermelho: { bar: "bg-red-500",     glow: "shadow-[0_0_8px_rgba(239,68,68,0.4)]",    badge: "bg-red-500/10 border-red-500/30 text-red-400",         ritmo: "text-red-400"     },
+  };
+  const cor = paleta[saude];
+
+  return { pct, pctDisplay, marcadorPct, ritmo, saude, cor, metaEsperadaHoje, diaOntem, diasNoMes };
+}
+
+// ─── MetaGoalBar — Barra de Progresso de Meta Mensal com Pacing ──────────────
 function MetaGoalBar({
   meta,
   leadsDoMes,
@@ -1474,45 +1530,47 @@ function MetaGoalBar({
 }) {
   if (!meta || meta <= 0) return null;
 
-  const hoje = new Date();
-  const diasNoMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate();
-  const diaAtual = hoje.getDate();
-  const proporcao = diaAtual / diasNoMes; // 0..1
-  const metaProporcional = meta * proporcao;
-  const pct = Math.min((leadsDoMes / meta) * 100, 100);
-  const pctDisplay = Math.round(pct);
+  const { pct, pctDisplay, marcadorPct, ritmo, cor } = calcPacing(meta, leadsDoMes);
 
-  // Saúde: compara leads reais com meta proporcional ao dia
-  const ratio = metaProporcional > 0 ? leadsDoMes / metaProporcional : 1;
-  const cor =
-    ratio >= 1
-      ? { bar: "bg-emerald-500", glow: "shadow-[0_0_8px_rgba(16,185,129,0.5)]", text: "text-emerald-400", badge: "bg-emerald-500/10 border-emerald-500/25 text-emerald-400" }
-      : ratio >= 0.8
-      ? { bar: "bg-amber-400",   glow: "shadow-[0_0_8px_rgba(251,191,36,0.4)]",  text: "text-amber-400",   badge: "bg-amber-500/10 border-amber-500/25 text-amber-400" }
-      : { bar: "bg-red-500",     glow: "shadow-[0_0_8px_rgba(239,68,68,0.4)]",   text: "text-red-400",     badge: "bg-red-500/10 border-red-500/30 text-red-400" };
+  const ritmoLabel =
+    ritmo === 0 ? "No ritmo" :
+    ritmo > 0   ? `Ritmo: +${ritmo}%` :
+                  `Ritmo: ${ritmo}%`;
 
   return (
-    <div className="mt-2 space-y-1">
+    <div className="mt-1 space-y-1">
+      {/* Cabeçalho: label + ritmo + badge de contagem */}
       <div className="flex items-center justify-between gap-1">
         <span className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844] flex items-center gap-1">
           <Target size={9} className="text-amber-500/60" /> Meta Mensal
         </span>
-        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border ${cor.badge}`}>
-          {leadsDoMes}/{meta} leads · {pctDisplay}%
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className={`text-[9px] font-semibold tabular-nums ${cor.ritmo}`}>
+            {ritmoLabel}
+          </span>
+          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border ${cor.badge}`}>
+            {leadsDoMes}/{meta} · {pctDisplay}%
+          </span>
+        </div>
       </div>
-      {/* Track */}
-      <div className="relative h-1.5 rounded-full bg-[#2e2c29] overflow-hidden">
-        {/* Marcador proporcional ao dia */}
+
+      {/* Barra de progresso com marcador D-1 */}
+      <div className="relative h-1.5 rounded-full bg-[#2e2c29]">
+        {/* Barra de progresso real */}
         <div
-          className="absolute top-0 h-full w-px bg-[#7a7268]/60 z-10"
-          style={{ left: `${Math.min(proporcao * 100, 99)}%` }}
-        />
-        {/* Barra de progresso */}
-        <div
-          className={`h-full rounded-full transition-all duration-700 ${cor.bar} ${cor.glow}`}
+          className={`absolute top-0 left-0 h-full rounded-full transition-all duration-700 ${cor.bar} ${cor.glow}`}
           style={{ width: `${pct}%` }}
         />
+        {/* Marcador "onde deveria estar hoje" — linha com halo */}
+        {marcadorPct > 0 && (
+          <div
+            className="absolute top-0 h-full z-10"
+            style={{ left: `${marcadorPct}%` }}
+          >
+            <div className="absolute h-full w-[3px] -translate-x-1/2 rounded-full bg-[#7a7268]/20" />
+            <div className="absolute h-full w-px -translate-x-1/2 bg-[#c8c2b8]/75" />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1532,9 +1590,14 @@ function ClientCard({ client, onSelect, onEdit, onDeactivate, onDelete, onToggle
   const isInactive=isClienteInativo(client);
   const temAlerta = client.alerta_pagamento === true;
 
+  // Altura unificada: 220px sem meta | 264px com meta — todos os cards de mesmo tipo têm tamanho idêntico
+  const temMeta = client.meta_leads_mensal != null && client.meta_leads_mensal > 0;
+  const cardH   = temMeta ? "h-[264px]" : "h-[220px]";
+
   return (
     <div onClick={onSelect}
-      className={`rounded-2xl border p-4 flex flex-col gap-2 cursor-pointer transition-all duration-200 h-[220px] overflow-hidden hover:border-amber-500/40 hover:shadow-[0_4px_20px_rgba(245,166,35,0.08)] ${isDragging?"bg-zinc-800 border-amber-500/50 shadow-[0_8px_32px_rgba(0,0,0,0.4)]":temAlerta?"border-red-500/30 bg-red-500/5":isInactive?"border-red-500/30 bg-[#1e1b1b] opacity-60":!client.platforms?.length?"border-amber-500/25 bg-[#1e1d1a]":"border-[#2e2c29] bg-[#1a1917]"}`}>
+      className={`rounded-2xl border p-4 flex flex-col cursor-pointer transition-all duration-200 ${cardH} overflow-hidden hover:border-amber-500/40 hover:shadow-[0_4px_20px_rgba(245,166,35,0.08)] ${isDragging?"bg-zinc-800 border-amber-500/50 shadow-[0_8px_32px_rgba(0,0,0,0.4)]":temAlerta?"border-red-500/30 bg-red-500/5":isInactive?"border-red-500/30 bg-[#1e1b1b] opacity-60":!client.platforms?.length?"border-amber-500/25 bg-[#1e1d1a]":"border-[#2e2c29] bg-[#1a1917]"}`}>
+
       {/* Row 1 — Nome + Status + Menu */}
       <div className="flex items-start justify-between gap-2 shrink-0">
         <div className="flex-1 min-w-0">
@@ -1557,23 +1620,27 @@ function ClientCard({ client, onSelect, onEdit, onDeactivate, onDelete, onToggle
         </div>
       </div>
 
-      {/* Row 2 — Plataformas + MetaSummary + MetaGoalBar (cresce e corta o excesso) */}
-      <div className="flex-1 flex flex-col gap-1.5 min-h-0 overflow-hidden">
+      {/* Row 2 — Plataformas + MetaSummary (área flexível, sem MetaGoalBar aqui) */}
+      <div className="flex-1 flex flex-col gap-1.5 min-h-0 overflow-hidden mt-2">
         <div className="flex flex-wrap gap-1.5 content-start">
-          {uniquePlats.length?uniquePlats.map(p=>(
+          {uniquePlats.length ? uniquePlats.map(p=>(
             <span key={p.key} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${PLATFORM_CHIP_COLOR[p.key]}`}>
               {PLATFORM_SVG[p.key]}{p.label}
             </span>
-          )):<span className="text-[#7a7268] text-xs italic">Nenhuma plataforma</span>}
+          )) : <span className="text-[#7a7268] text-xs italic">Nenhuma plataforma</span>}
         </div>
         <MetaSummary data={metaData} />
-        {client.meta_leads_mensal != null && (
-          <MetaGoalBar meta={client.meta_leads_mensal} leadsDoMes={leadsDoMes ?? 0} />
-        )}
       </div>
 
-      {/* Row 3 — Gestores + Data (sempre no rodapé) */}
-      <div className="flex items-center gap-2 flex-wrap border-t border-[#2e2c29]/50 pt-2 shrink-0">
+      {/* Row 3 — MetaGoalBar ancorada acima do rodapé (só aparece se tiver meta) */}
+      {temMeta && (
+        <div className="shrink-0 mt-1">
+          <MetaGoalBar meta={client.meta_leads_mensal!} leadsDoMes={leadsDoMes ?? 0} />
+        </div>
+      )}
+
+      {/* Row 4 — Gestores + Data (sempre no rodapé) */}
+      <div className="flex items-center gap-2 flex-wrap border-t border-[#2e2c29]/50 pt-2 mt-2 shrink-0">
         <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#201f1d] border border-[#2e2c29] text-[#7a7268]">
           <Layers size={10} /> {client.gestor}
         </span>
@@ -2731,19 +2798,33 @@ export default function Home() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Busca contagem de leads do mês atual para cada cliente (para barra de meta)
+  // Busca contagem de leads do mês atual para cada cliente (base D-1 — pacing)
   const fetchLeadsDoMesBatch = useCallback(async (clienteIds: string[]) => {
     if (!clienteIds.length) return;
     try {
-      const now = new Date();
-      const mesInicio = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-      const mesFim    = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+      const now     = new Date();
+      const ano     = now.getFullYear();
+      const mes     = now.getMonth(); // 0-based
+      const diaHoje = now.getDate();
+
+      // Início do mês vigente
+      const mesInicio = new Date(ano, mes, 1).toISOString().slice(0, 10);
+
+      // Limite superior: D-1 (dados consolidados até ontem).
+      // Se hoje for dia 1, ontem pertence ao mês anterior — leads do mês atual = 0.
+      let ontem: string;
+      if (diaHoje === 1) {
+        ontem = new Date(ano, mes, 0).toISOString().slice(0, 10); // último dia do mês anterior
+      } else {
+        ontem = new Date(ano, mes, diaHoje - 1).toISOString().slice(0, 10);
+      }
+
       const { data, error } = await supabase
         .from("leads")
         .select("cliente, data")
         .in("cliente", clienteIds)
         .gte("data", mesInicio)
-        .lte("data", mesFim);
+        .lte("data", ontem); // apenas leads consolidados até D-1
       if (error) throw error;
       const counts: Record<string, number> = {};
       for (const row of (data ?? []) as { cliente: string; data: string }[]) {
@@ -3557,20 +3638,13 @@ export default function Home() {
                 <div className="space-y-3 flex-1 min-w-0">
                   <h2 className="text-xl font-extrabold tracking-tight">{clienteAtivo.nome}</h2>
 
-                  {/* ── Barra de Meta Mensal no detalhe ── */}
+                  {/* ── Barra de Meta Mensal no detalhe (base D-1) ── */}
                   {clienteAtivo.meta_leads_mensal != null && clienteAtivo.meta_leads_mensal > 0 && (() => {
+                    // Usa apenas o valor do batch (D-1), consistente com o pacing dos cards
                     const leadsDoMes = leadsDoMesPorCliente[clienteAtivo.id] ?? 0;
-                    // Também soma leads do período atual se já carregados
-                    const hoje = new Date();
-                    const mesAtual = hoje.toISOString().slice(0, 7); // "2025-03"
-                    const leadsEsteMes = allLeadsForDashboard.filter(l => {
-                      const d = l.data ?? l.created_at ?? "";
-                      return d.startsWith(mesAtual);
-                    }).length;
-                    const total = Math.max(leadsDoMes, leadsEsteMes);
                     return (
                       <div className="mt-1">
-                        <MetaGoalBar meta={clienteAtivo.meta_leads_mensal} leadsDoMes={total} />
+                        <MetaGoalBar meta={clienteAtivo.meta_leads_mensal} leadsDoMes={leadsDoMes} />
                       </div>
                     );
                   })()}
