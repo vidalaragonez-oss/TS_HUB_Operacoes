@@ -65,7 +65,7 @@ export default function LoginPage() {
             {/* Logo da Controler (Imagem Real) */}
 <div className="w-20 h-20 mb-2 flex items-center justify-center">
   <img 
-    src="/logo.png" 
+    src="/ICONE.svg" 
     alt="TS HUB Logo" 
     className="w-full h-full object-contain"
   />

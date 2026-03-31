@@ -3148,7 +3148,7 @@ export default function Home() {
               title={clienteAtivo ? "Voltar à tela inicial" : ""}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/logo.png" alt="TS HUB" className="h-8 w-auto"/>
+              <img src="/LOGO-PRINCIPAL.svg" alt="TS HUB" className="h-8 w-auto"/>
               <div className="hidden xs:block">
                 <p className="font-bold text-[0.95rem] leading-none tracking-tight">TS <span className="text-amber-500">HUB</span></p>
                 <p className="text-[9px] text-[#4a4844] leading-none mt-0.5 hidden sm:block">Sua operação sob controle total.</p>
