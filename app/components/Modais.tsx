@@ -71,6 +71,8 @@ export interface Cliente {
   verba_outros?:      number | null;
   // ── IDs de Integração extra ───────────────────────────────────────────────
   gls_account_id?:    string | null;
+  // ── Moeda ─────────────────────────────────────────────────────────────────
+  moeda?:             'BRL' | 'USD' | null;
 }
 
 export interface Lead {
@@ -522,6 +524,7 @@ export function ClienteModal({
   const [verbaGls, setVerbaGls]       = useState<string>(initial?.verba_gls      != null ? String(initial.verba_gls)      : "");
   const [verbaOutros, setVerbaOutros] = useState<string>(initial?.verba_outros   != null ? String(initial.verba_outros)   : "");
   const [glsAccountId, setGlsAccountId] = useState(initial?.gls_account_id ?? "");
+  const [moeda, setMoeda] = useState<'BRL' | 'USD'>(initial?.moeda ?? 'BRL');
 
   const handleFetchAccounts = async () => {
     setMetaLoading(true);
@@ -609,6 +612,7 @@ export function ClienteModal({
       verba_gls:         verbaGls    !== "" ? Number(verbaGls)    : null,
       verba_outros:      verbaOutros !== "" ? Number(verbaOutros) : null,
       gls_account_id:    glsAccountId.trim() || null,
+      moeda,
     };
 
     setSaving(true);
@@ -618,8 +622,15 @@ export function ClienteModal({
         : await supabase.from("clientes").update(payload).eq("id", initial!.id).select().single();
 
       if (result.error) throw result.error;
+      // Merge returned data with full payload to guarantee all fields are fresh
+      // (avoids stale reads when Supabase returns cached row state)
+      const saved: Cliente = {
+        ...(result.data as Cliente),
+        ...payload,
+        id: mode === "new" ? (result.data as Cliente).id : initial!.id,
+      } as unknown as Cliente;
       toast.success(mode === "new" ? `${payload.nome} cadastrado!` : "Alterações salvas!");
-      onSaved(result.data as Cliente);
+      onSaved(saved);
       onClose();
     } catch (err: unknown) {
       toast.error(`Erro ao salvar: ${(err as Error).message}`);
@@ -855,36 +866,59 @@ export function ClienteModal({
                 placeholder="Ex: 50"
                 className="w-full bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 py-2.5 text-sm text-[#e8e2d8] placeholder:text-[#4a4844] outline-none focus:border-amber-500/60 transition-colors"/>
             </div>
-            {/* Verbas — grade 3 colunas */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-[10px] text-[#4a4844] font-medium flex items-center gap-1">
-                  <svg width="9" height="9" viewBox="0 0 24 24" fill="#1877F2"><path d="M24 12.073c0-6.627-5.372-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
-                  Verba Meta (R$)
-                </label>
-                <input type="number" min="0" step="0.01" value={verbaMeta} onChange={e => setVerbaMeta(e.target.value)}
-                  placeholder="Ex: 3000"
-                  className="w-full bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 py-2.5 text-sm text-[#e8e2d8] placeholder:text-[#4a4844] outline-none focus:border-blue-500/50 transition-colors"/>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[10px] text-[#4a4844] font-medium flex items-center gap-1">
-                  <svg width="9" height="9" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="20" fill="#34A853"/><path d="M34.5858 17.5858L21.4142 30.7574L14.8284 24.1716L12 27L21.4142 36.4142L37.4142 20.4142L34.5858 17.5858Z" fill="white"/></svg>
-                  Verba GLS (R$)
-                </label>
-                <input type="number" min="0" step="0.01" value={verbaGls} onChange={e => setVerbaGls(e.target.value)}
-                  placeholder="Ex: 1500"
-                  className="w-full bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 py-2.5 text-sm text-[#e8e2d8] placeholder:text-[#4a4844] outline-none focus:border-purple-500/50 transition-colors"/>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[10px] text-[#4a4844] font-medium flex items-center gap-1">
-                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="9"/><path d="M12 8v4m0 4h.01"/></svg>
-                  Outras Verbas (R$)
-                </label>
-                <input type="number" min="0" step="0.01" value={verbaOutros} onChange={e => setVerbaOutros(e.target.value)}
-                  placeholder="Ex: 500"
-                  className="w-full bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 py-2.5 text-sm text-[#e8e2d8] placeholder:text-[#4a4844] outline-none focus:border-amber-500/50 transition-colors"/>
+            {/* Moeda do cliente */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] text-[#4a4844] font-medium">Moeda dos Relatórios</label>
+              <div className="flex gap-2">
+                {(['BRL', 'USD'] as const).map(c => (
+                  <button key={c} type="button" onClick={() => setMoeda(c)}
+                    className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-all ${
+                      moeda === c
+                        ? c === 'BRL'
+                          ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400"
+                          : "bg-blue-500/15 border-blue-500/40 text-blue-400"
+                        : "bg-[#201f1d] border-[#2e2c29] text-[#7a7268] hover:text-[#e8e2d8] hover:border-[#7a7268]"
+                    }`}>
+                    {c === 'BRL' ? '🇧🇷 R$ — Real' : '🇺🇸 US$ — Dólar'}
+                  </button>
+                ))}
               </div>
             </div>
+
+            {/* Verbas — condicionais por plataforma ativa */}
+            {(() => {
+              const symbol = moeda === 'USD' ? 'US$' : 'R$';
+              const platVerbas: { platKey: PlatformKey; label: string; stateKey: string; value: string; setter: (v: string) => void; borderCls: string }[] = [
+                { platKey: 'meta',      label: `Verba Meta Ads (${symbol})`,   stateKey: 'verbaMeta',    value: verbaMeta,    setter: setVerbaMeta,    borderCls: 'focus:border-blue-500/50'    },
+                { platKey: 'gls',       label: `Verba GLS (${symbol})`,        stateKey: 'verbaGls',     value: verbaGls,     setter: setVerbaGls,     borderCls: 'focus:border-purple-500/50'  },
+                { platKey: 'nextdoor',  label: `Verba Nextdoor (${symbol})`,   stateKey: 'verba',        value: verbaOutros,  setter: setVerbaOutros,  borderCls: 'focus:border-green-500/50'   },
+                { platKey: 'thumbtack', label: `Verba Thumbtack (${symbol})`,  stateKey: 'verba',        value: verbaOutros,  setter: setVerbaOutros,  borderCls: 'focus:border-cyan-500/50'    },
+              ];
+              // Only show platforms that are active
+              const activeVerbas = platVerbas.filter(v => activePlats.has(v.platKey));
+              // Always show "Outros" field
+              return (
+                <div className={`grid gap-3 ${activeVerbas.length > 0 ? 'grid-cols-1 sm:grid-cols-2' : 'hidden'}`}>
+                  {activeVerbas.map(v => (
+                    <div key={v.platKey} className="space-y-1.5">
+                      <label className="text-[10px] text-[#4a4844] font-medium flex items-center gap-1.5">
+                        {PLATFORM_SVG[v.platKey]}
+                        {v.label}
+                      </label>
+                      <input type="number" min="0" step="0.01" value={v.value} onChange={e => v.setter(e.target.value)}
+                        placeholder="0.00"
+                        className={`w-full bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 py-2.5 text-sm text-[#e8e2d8] placeholder:text-[#4a4844] outline-none transition-colors ${v.borderCls}`}/>
+                    </div>
+                  ))}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] text-[#4a4844] font-medium">Outras Verbas ({symbol})</label>
+                    <input type="number" min="0" step="0.01" value={verbaOutros} onChange={e => setVerbaOutros(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 py-2.5 text-sm text-[#e8e2d8] placeholder:text-[#4a4844] outline-none focus:border-amber-500/50 transition-colors"/>
+                  </div>
+                </div>
+              );
+            })()}
             {/* Budget total preview */}
             {(verbaMeta !== "" || verbaGls !== "" || verbaOutros !== "") && (() => {
               const total = (verbaMeta !== "" ? Number(verbaMeta) : 0)
@@ -894,7 +928,7 @@ export function ClienteModal({
                 <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-[#111010]/60 border border-[#2e2c29]">
                   <span className="text-[10px] text-[#7a7268] font-semibold uppercase tracking-widest">Orçamento Total Mensal</span>
                   <span className="text-sm font-extrabold text-amber-400">
-                    {total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                    {total.toLocaleString("pt-BR", { style: "currency", currency: moeda ?? "BRL" })}
                   </span>
                 </div>
               );
