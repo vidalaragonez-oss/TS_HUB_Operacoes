@@ -33,7 +33,7 @@ import { supabase } from "@/lib/supabase";
 
 // ─── Tipos locais ─────────────────────────────────────────────────────────────
 
-export type PlatformKey = "meta" | "google" | "gls";
+export type PlatformKey = "meta" | "google" | "gls" | "nextdoor" | "thumbtack";
 
 export interface Platform {
   key: PlatformKey;
@@ -64,6 +64,15 @@ export interface Cliente {
   meta_ad_account_id?: string | null;
   meta_access_token?:  string | null;
   meta_status?:        string | null;
+  // ── Metas & Orçamento ─────────────────────────────────────────────────────
+  meta_leads_mensal?: number | null;
+  verba_meta_ads?:    number | null;
+  verba_gls?:         number | null;
+  verba_outros?:      number | null;
+  // ── IDs de Integração extra ───────────────────────────────────────────────
+  gls_account_id?:    string | null;
+  // ── Moeda ─────────────────────────────────────────────────────────────────
+  moeda?:             'BRL' | 'USD' | null;
 }
 
 export interface Lead {
@@ -123,6 +132,22 @@ export const PLATFORM_DEFS: {
       "Local Awareness",
     ],
   },
+  {
+    key: "nextdoor",
+    label: "Nextdoor Ads",
+    campaigns: [
+      "Nextdoor Local Deals",
+      "Nextdoor Awareness",
+    ],
+  },
+  {
+    key: "thumbtack",
+    label: "Thumbtack",
+    campaigns: [
+      "Thumbtack Leads",
+      "Thumbtack Pro Spotlight",
+    ],
+  },
 ];
 
 // Lookup: dado um nome de campanha, retorna a PlatformKey pai
@@ -155,18 +180,35 @@ export const PLATFORM_SVG: Record<PlatformKey, React.ReactNode> = {
       <path d="M34.5858 17.5858L21.4142 30.7574L14.8284 24.1716L12 27L21.4142 36.4142L37.4142 20.4142L34.5858 17.5858Z" fill="white" />
     </svg>
   ),
+  nextdoor: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="11" fill="#00B246" />
+      <path d="M7 12.5L10.5 16L17 9" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  ),
+  thumbtack: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="11" fill="#009FD9" />
+      <path d="M12 6V14M12 14L9 11M12 14L15 11" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+      <circle cx="12" cy="17" r="1.2" fill="white"/>
+    </svg>
+  ),
 };
 
 const PLATFORM_CHIP_COLOR: Record<PlatformKey, string> = {
-  meta:   "bg-blue-500/15 text-blue-400 border-blue-500/30",
-  google: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
-  gls:    "bg-purple-500/15 text-purple-400 border-purple-500/30",
+  meta:      "bg-blue-500/15 text-blue-400 border-blue-500/30",
+  google:    "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+  gls:       "bg-purple-500/15 text-purple-400 border-purple-500/30",
+  nextdoor:  "bg-green-500/15 text-green-400 border-green-500/30",
+  thumbtack: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30",
 };
 
 const LEAD_PLATFORM_OPTIONS = [
   "Meta Ads",
   "Google Ads",
   "Google Local Services",
+  "Nextdoor Ads",
+  "Thumbtack",
   "Elementor Form",
   "Outro",
 ];
@@ -212,7 +254,7 @@ function useGestoresFiltrados(enabled: boolean) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function buildInitialCamps(cliente?: Cliente): Record<PlatformKey, string[]> {
-  const result: Record<PlatformKey, string[]> = { meta: [], google: [], gls: [] };
+  const result: Record<PlatformKey, string[]> = { meta: [], google: [], gls: [], nextdoor: [], thumbtack: [] };
   if (!cliente) return result;
 
   // Fonte primária: tipo_campanha (array canônico, formato novo)
@@ -474,6 +516,19 @@ export function ClienteModal({
   const metaSearchRef = useRef<HTMLInputElement>(null);
   const metaDropdownRef = useRef<HTMLDivElement>(null);
 
+  // ── Metas, Orçamentos & IDs adicionais ─────────────────────────────────────
+  const [metaLeadsMensal, setMetaLeadsMensal] = useState<string>(
+    initial?.meta_leads_mensal != null ? String(initial.meta_leads_mensal) : ""
+  );
+  const [verbaMeta, setVerbaMeta]         = useState<string>(initial?.verba_meta_ads != null ? String(initial.verba_meta_ads) : "");
+  const [verbaGoogle, setVerbaGoogle]     = useState<string>("");
+  const [verbaGls, setVerbaGls]           = useState<string>(initial?.verba_gls      != null ? String(initial.verba_gls)      : "");
+  const [verbaNextdoor, setVerbaNextdoor] = useState<string>(initial?.verba_outros   != null && (initial?.platforms ?? []).some(p => p.key === 'nextdoor') ? String(initial.verba_outros) : "");
+  const [verbaThumbtack, setVerbaThumbtack] = useState<string>(initial?.verba_outros != null && (initial?.platforms ?? []).some(p => p.key === 'thumbtack') ? String(initial.verba_outros) : "");
+  const [verbaOutros, setVerbaOutros]     = useState<string>(initial?.verba_outros   != null ? String(initial.verba_outros)   : "");
+  const [glsAccountId, setGlsAccountId] = useState(initial?.gls_account_id ?? "");
+  const [moeda, setMoeda] = useState<'BRL' | 'USD'>(initial?.moeda ?? 'BRL');
+
   const handleFetchAccounts = async () => {
     setMetaLoading(true);
     setMetaAccounts([]);
@@ -510,13 +565,19 @@ export function ClienteModal({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [metaDropdownOpen]);
 
-  // Toggle de plataforma: ao desmarcar limpa as campanhas daquela plataforma
+  // Toggle de plataforma: ao desmarcar limpa campanhas E verba correspondente
   const togglePlatform = (key: PlatformKey) => {
     setActivePlats(prev => {
       const next = new Set(prev);
       if (next.has(key)) {
         next.delete(key);
         setCamps(c => ({ ...c, [key]: [] })); // limpa campanhas
+        // Reseta verba da plataforma desmarcada IMEDIATAMENTE
+        if (key === 'meta')      setVerbaMeta("");
+        if (key === 'google')    setVerbaGoogle("");
+        if (key === 'gls')       setVerbaGls("");
+        if (key === 'nextdoor')  setVerbaNextdoor("");
+        if (key === 'thumbtack') setVerbaThumbtack("");
       } else {
         next.add(key);
       }
@@ -554,6 +615,20 @@ export function ClienteModal({
       meta_ad_account_id: metaAccountId.trim() || null,
       meta_access_token:  metaToken.trim() || null,
       meta_status: metaAccountId.trim() ? "vinculado" : "sem_link",
+      // ── Metas & Orçamentos ─────────────────────────────────────────────────
+      meta_leads_mensal: metaLeadsMensal !== "" ? Number(metaLeadsMensal) : null,
+      verba_meta_ads:    verbaMeta      !== "" && activePlats.has('meta')      ? Number(verbaMeta)      : null,
+      verba_gls:         verbaGls       !== "" && activePlats.has('gls')       ? Number(verbaGls)       : null,
+      // verba_outros agrega: Google Ads + Nextdoor + Thumbtack + campo genérico "Outros"
+      verba_outros: (() => {
+        const v = (verbaGoogle    !== "" && activePlats.has('google')    ? Number(verbaGoogle)    : 0)
+                + (verbaNextdoor  !== "" && activePlats.has('nextdoor')  ? Number(verbaNextdoor)  : 0)
+                + (verbaThumbtack !== "" && activePlats.has('thumbtack') ? Number(verbaThumbtack) : 0)
+                + (verbaOutros    !== ""                                  ? Number(verbaOutros)    : 0);
+        return v > 0 ? v : null;
+      })(),
+      gls_account_id:    glsAccountId.trim() || null,
+      moeda,
     };
 
     setSaving(true);
@@ -563,8 +638,15 @@ export function ClienteModal({
         : await supabase.from("clientes").update(payload).eq("id", initial!.id).select().single();
 
       if (result.error) throw result.error;
+      // Merge returned data with full payload to guarantee all fields are fresh
+      // (avoids stale reads when Supabase returns cached row state)
+      const saved: Cliente = {
+        ...(result.data as Cliente),
+        ...payload,
+        id: mode === "new" ? (result.data as Cliente).id : initial!.id,
+      } as unknown as Cliente;
       toast.success(mode === "new" ? `${payload.nome} cadastrado!` : "Alterações salvas!");
-      onSaved(result.data as Cliente);
+      onSaved(saved);
       onClose();
     } catch (err: unknown) {
       toast.error(`Erro ao salvar: ${(err as Error).message}`);
@@ -781,6 +863,116 @@ export function ClienteModal({
             })}
           </div>
 
+
+          {/* ── Metas & Orçamentos ──────────────────────────────────────────────── */}
+          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 space-y-4">
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded bg-amber-500/20 flex items-center justify-center shrink-0">
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#f5a623" strokeWidth="2.5"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></svg>
+              </div>
+              <label className="text-[10px] font-bold uppercase tracking-widest text-[#7a7268]">Metas &amp; Orçamento Mensal</label>
+            </div>
+            {/* Meta de Leads */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] text-[#4a4844] font-medium flex items-center gap-1">
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+                Meta Mensal de Leads
+              </label>
+              <input type="number" min="0" value={metaLeadsMensal} onChange={e => setMetaLeadsMensal(e.target.value)}
+                placeholder="Ex: 50"
+                className="w-full bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 py-2.5 text-sm text-[#e8e2d8] placeholder:text-[#4a4844] outline-none focus:border-amber-500/60 transition-colors"/>
+            </div>
+            {/* Moeda do cliente */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] text-[#4a4844] font-medium">Moeda dos Relatórios</label>
+              <div className="flex gap-2">
+                {(['BRL', 'USD'] as const).map(c => (
+                  <button key={c} type="button" onClick={() => setMoeda(c)}
+                    className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-all ${
+                      moeda === c
+                        ? c === 'BRL'
+                          ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400"
+                          : "bg-blue-500/15 border-blue-500/40 text-blue-400"
+                        : "bg-[#201f1d] border-[#2e2c29] text-[#7a7268] hover:text-[#e8e2d8] hover:border-[#7a7268]"
+                    }`}>
+                    {c === 'BRL' ? '🇧🇷 R$ — Real' : '🇺🇸 US$ — Dólar'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Verbas — condicionais por plataforma ativa, estado separado por plataforma */}
+            {(() => {
+              const symbol = moeda === 'USD' ? 'US$' : 'R$';
+              const platVerbas: { platKey: PlatformKey; label: string; value: string; setter: (v: string) => void; borderCls: string }[] = [
+                { platKey: 'meta',      label: `Verba Meta Ads (${symbol})`,   value: verbaMeta,      setter: setVerbaMeta,      borderCls: 'focus:border-blue-500/50'    },
+                { platKey: 'google',    label: `Verba Google Ads (${symbol})`, value: verbaGoogle,    setter: setVerbaGoogle,    borderCls: 'focus:border-emerald-500/50' },
+                { platKey: 'gls',       label: `Verba GLS (${symbol})`,        value: verbaGls,       setter: setVerbaGls,       borderCls: 'focus:border-purple-500/50'  },
+                { platKey: 'nextdoor',  label: `Verba Nextdoor (${symbol})`,   value: verbaNextdoor,  setter: setVerbaNextdoor,  borderCls: 'focus:border-green-500/50'   },
+                { platKey: 'thumbtack', label: `Verba Thumbtack (${symbol})`,  value: verbaThumbtack, setter: setVerbaThumbtack, borderCls: 'focus:border-cyan-500/50'    },
+              ];
+              const activeVerbas = platVerbas.filter(v => activePlats.has(v.platKey));
+              // Grid: 1 coluna se só 1 ativo+outros, 2 colunas se mais
+              const totalCols = activeVerbas.length + 1; // +1 para "Outros"
+              const gridCls = totalCols === 1 ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2';
+              return (
+                <div className={`grid gap-3 ${gridCls}`}>
+                  {activeVerbas.map(v => (
+                    <div key={v.platKey} className="space-y-1.5">
+                      <label className="text-[10px] text-[#4a4844] font-medium flex items-center gap-1.5 min-h-[1.1rem]">
+                        {PLATFORM_SVG[v.platKey]}
+                        {v.label}
+                      </label>
+                      <input type="number" min="0" step="0.01" value={v.value} onChange={e => v.setter(e.target.value)}
+                        placeholder="0.00"
+                        className={`w-full h-[42px] bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 py-2.5 text-sm text-[#e8e2d8] placeholder:text-[#4a4844] outline-none transition-colors ${v.borderCls}`}/>
+                    </div>
+                  ))}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] text-[#4a4844] font-medium min-h-[1.1rem] flex items-center">Outras Verbas ({symbol})</label>
+                    <input type="number" min="0" step="0.01" value={verbaOutros} onChange={e => setVerbaOutros(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full h-[42px] bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 py-2.5 text-sm text-[#e8e2d8] placeholder:text-[#4a4844] outline-none focus:border-amber-500/50 transition-colors"/>
+                  </div>
+                </div>
+              );
+            })()}
+            {/* Budget total preview — moeda exclusiva do seletor */}
+            {(verbaMeta !== "" || verbaGoogle !== "" || verbaGls !== "" || verbaNextdoor !== "" || verbaThumbtack !== "" || verbaOutros !== "") && (() => {
+              const total = (verbaMeta      !== "" ? Number(verbaMeta)      : 0)
+                + (verbaGoogle    !== "" ? Number(verbaGoogle)    : 0)
+                + (verbaGls       !== "" ? Number(verbaGls)       : 0)
+                + (verbaNextdoor  !== "" ? Number(verbaNextdoor)  : 0)
+                + (verbaThumbtack !== "" ? Number(verbaThumbtack) : 0)
+                + (verbaOutros    !== "" ? Number(verbaOutros)    : 0);
+              const fmtTotal = moeda === 'USD'
+                ? `US$ ${total.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                : `R$ ${total.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+              return (
+                <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-[#111010]/60 border border-[#2e2c29]">
+                  <span className="text-[10px] text-[#7a7268] font-semibold uppercase tracking-widest">Orçamento Total Mensal</span>
+                  <span className="text-sm font-extrabold text-amber-400">{fmtTotal}</span>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* ── IDs de Integração ────────────────────────────────────────────── */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded bg-emerald-500/20 flex items-center justify-center shrink-0">
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+              </div>
+              <label className="text-[10px] font-bold uppercase tracking-widest text-[#7a7268]">ID de Conta — Google Local Services</label>
+            </div>
+            <input
+              type="text"
+              value={glsAccountId}
+              onChange={e => setGlsAccountId(e.target.value)}
+              placeholder="ID da conta GLS (opcional)"
+              className="w-full bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 py-2.5 text-xs text-[#e8e2d8] placeholder:text-[#3a3835] outline-none focus:border-emerald-500/50 transition-colors font-mono"
+            />
+          </div>
 
           {/* ── Integração Meta Ads ─────────────────────────────────────────── */}
           <div className="space-y-3">

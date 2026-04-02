@@ -101,12 +101,27 @@ const PLATFORM_SVG: Record<PlatformKey, React.ReactNode> = {
       <path d="M34.5858 17.5858L21.4142 30.7574L14.8284 24.1716L12 27L21.4142 36.4142L37.4142 20.4142L34.5858 17.5858Z" fill="white" />
     </svg>
   ),
+  nextdoor: (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="11" fill="#00B246" />
+      <path d="M7 12.5L10.5 16L17 9" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  ),
+  thumbtack: (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="11" fill="#009FD9" />
+      <path d="M12 6V14M12 14L9 11M12 14L15 11" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+      <circle cx="12" cy="17" r="1.2" fill="white"/>
+    </svg>
+  ),
 };
 
 const PLATFORM_CHIP_COLOR: Record<PlatformKey, string> = {
-  meta:   "bg-blue-500/15 text-blue-400 border-blue-500/30",
-  google: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
-  gls:    "bg-purple-500/15 text-purple-400 border-purple-500/30",
+  meta:      "bg-blue-500/15 text-blue-400 border-blue-500/30",
+  google:    "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+  gls:       "bg-purple-500/15 text-purple-400 border-purple-500/30",
+  nextdoor:  "bg-green-500/15 text-green-400 border-green-500/30",
+  thumbtack: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30",
 };
 
 function getPlatformBadgeStyle(plataforma: string): string {
@@ -115,6 +130,8 @@ function getPlatformBadgeStyle(plataforma: string): string {
   if (p.includes("google local") || p.includes("gls"))     return "bg-purple-500/15 text-purple-400 border-purple-500/30";
   if (p.includes("google"))                                return "bg-emerald-500/15 text-emerald-400 border-emerald-500/30";
   if (p.includes("elementor"))                             return "bg-pink-500/15 text-pink-400 border-pink-500/30";
+  if (p.includes("nextdoor"))                              return "bg-green-500/15 text-green-400 border-green-500/30";
+  if (p.includes("thumbtack"))                             return "bg-cyan-500/15 text-cyan-400 border-cyan-500/30";
   return "bg-amber-500/15 text-amber-400 border-amber-500/30";
 }
 
@@ -1605,7 +1622,7 @@ function ClientCard({ client, onSelect, onEdit, onDeactivate, onDelete, onToggle
         </div>
       </div>
 
-      {/* Row 2 — Plataformas + MetaSummary (área flexível, sem MetaGoalBar aqui) */}
+      {/* Row 2 — Plataformas + Orçamento Planejado + Meta de Leads */}
       <div className="flex-1 flex flex-col gap-1.5 min-h-0 overflow-hidden mt-2">
         <div className="flex flex-wrap gap-1.5 content-start">
           {uniquePlats.length ? uniquePlats.map(p=>(
@@ -1614,7 +1631,31 @@ function ClientCard({ client, onSelect, onEdit, onDeactivate, onDelete, onToggle
             </span>
           )) : <span className="text-[#7a7268] text-xs italic">Nenhuma plataforma</span>}
         </div>
-        <MetaSummary data={metaData} />
+        {/* Orçamento Mensal Planejado + Meta de Leads (estático, sem dados em tempo real) */}
+        {(() => {
+          const totalOrc = (client.verba_meta_ads ?? 0) + (client.verba_gls ?? 0) + (client.verba_outros ?? 0);
+          const temOrc = totalOrc > 0;
+          const temMeta = (client.meta_leads_mensal ?? 0) > 0;
+          if (!temOrc && !temMeta) return null;
+          const orcSymbol = (client.moeda ?? "BRL") === "USD" ? "US$" : "R$";
+          const orcCurrency = (client.moeda ?? "BRL") === "USD" ? "USD" : "BRL";
+          return (
+            <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+              {temOrc && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/8 border border-amber-500/20 text-amber-400">
+                  <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                  {orcSymbol} {totalOrc.toLocaleString(orcCurrency === "USD" ? "en-US" : "pt-BR", { maximumFractionDigits: 0 })}
+                </span>
+              )}
+              {temMeta && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/8 border border-blue-500/25 text-blue-400">
+                  <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+                  Meta: {client.meta_leads_mensal} leads
+                </span>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Row 3 — MetaGoalBar ancorada acima do rodapé (só aparece se tiver meta) */}
@@ -1680,7 +1721,30 @@ function ClientRow({ client, onSelect, onEdit, onDeactivate, onDelete, onToggleA
           </button>
           <div className="min-w-0">
             <p className="font-semibold text-[#e8e2d8] text-sm truncate max-w-[160px]">{client.nome}</p>
-            <MetaSummary data={metaData} />
+            {(() => {
+              const totalOrc = (client.verba_meta_ads ?? 0) + (client.verba_gls ?? 0) + (client.verba_outros ?? 0);
+              const temOrc = totalOrc > 0;
+              const temMeta = (client.meta_leads_mensal ?? 0) > 0;
+              if (!temOrc && !temMeta) return null;
+              const orcSymbol = (client.moeda ?? "BRL") === "USD" ? "US$" : "R$";
+              const orcCurrency = (client.moeda ?? "BRL") === "USD" ? "USD" : "BRL";
+              return (
+                <div className="flex items-center gap-1 flex-wrap mt-0.5">
+                  {temOrc && (
+                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-amber-500/8 border border-amber-500/20 text-amber-400">
+                      <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                      {orcSymbol} {totalOrc.toLocaleString(orcCurrency === "USD" ? "en-US" : "pt-BR", { maximumFractionDigits: 0 })}
+                    </span>
+                  )}
+                  {temMeta && (
+                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-blue-500/8 border border-blue-500/25 text-blue-400">
+                      <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+                      {client.meta_leads_mensal} leads/mês
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
       </td>
@@ -1733,6 +1797,14 @@ const CANONICAL_PLATFORM_DEFS: { key: PlatformKey; label: string; campaigns: str
     key: "gls", label: "Google Local Services",
     campaigns: ["Local Service Ads (GLS)", "Local Awareness"],
   },
+  {
+    key: "nextdoor", label: "Nextdoor Ads",
+    campaigns: ["Nextdoor Local Deals", "Nextdoor Awareness"],
+  },
+  {
+    key: "thumbtack", label: "Thumbtack",
+    campaigns: ["Thumbtack Leads", "Thumbtack Pro Spotlight"],
+  },
 ];
 
 function getCampanhaPlatKey(camp: string): PlatformKey | null {
@@ -1743,7 +1815,7 @@ function getCampanhaPlatKey(camp: string): PlatformKey | null {
 }
 
 function buildEditCamps(cliente: Cliente): Record<PlatformKey, string[]> {
-  const result: Record<PlatformKey, string[]> = { meta: [], google: [], gls: [] };
+  const result: Record<PlatformKey, string[]> = { meta: [], google: [], gls: [], nextdoor: [], thumbtack: [] };
 
   if (Array.isArray(cliente.tipo_campanha) && cliente.tipo_campanha.length > 0) {
     for (const camp of cliente.tipo_campanha) {
@@ -1764,9 +1836,11 @@ function buildEditCamps(cliente: Cliente): Record<PlatformKey, string[]> {
 }
 
 const CAMP_CHIP_COLOR: Record<PlatformKey, string> = {
-  meta:   "bg-blue-500/10 text-blue-300 border-blue-500/20",
-  google: "bg-emerald-500/10 text-emerald-300 border-emerald-500/20",
-  gls:    "bg-purple-500/10 text-purple-300 border-purple-500/20",
+  meta:      "bg-blue-500/10 text-blue-300 border-blue-500/20",
+  google:    "bg-emerald-500/10 text-emerald-300 border-emerald-500/20",
+  gls:       "bg-purple-500/10 text-purple-300 border-purple-500/20",
+  nextdoor:  "bg-green-500/10 text-green-300 border-green-500/20",
+  thumbtack: "bg-cyan-500/10 text-cyan-300 border-cyan-500/20",
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1816,8 +1890,8 @@ function EditClienteModal({
   const [verbaGls, setVerbaGls] = useState<string>(
     cliente.verba_gls != null ? String(cliente.verba_gls) : ""
   );
-  const [orcamento, setOrcamento] = useState<string>(
-    cliente.verba_meta_ads != null ? String(cliente.verba_meta_ads) : cliente.verba_gls != null ? String(cliente.verba_gls) : ""
+  const [verbaOutros, setVerbaOutros] = useState<string>(
+    cliente.verba_outros != null ? String(cliente.verba_outros) : ""
   );
 
   const togglePlatform = (key: PlatformKey) => {
@@ -1825,7 +1899,11 @@ function EditClienteModal({
       const next = new Set(prev);
       if (next.has(key)) {
         next.delete(key);
+        // Limpa campanhas da plataforma removida
         setCamps(c => ({ ...c, [key]: [] }));
+        // Reseta verba da plataforma removida no estado local
+        if (key === 'meta')    setVerbaMeta("");
+        if (key === 'gls')     setVerbaGls("");
       } else {
         next.add(key);
       }
@@ -1873,8 +1951,9 @@ function EditClienteModal({
         status: newStatus,
         tipo_campanha: tipoCampanhaArray.length > 0 ? tipoCampanhaArray.join(',') : null,
         meta_leads_mensal: metaLeadsMensal !== "" ? Number(metaLeadsMensal) : null,
-        verba_meta_ads:    orcamento !== "" ? Number(orcamento) : null,
-        verba_gls:         orcamento !== "" ? Number(orcamento) : null,
+        verba_meta_ads:    verbaMeta   !== "" ? Number(verbaMeta)   : null,
+        verba_gls:         verbaGls    !== "" ? Number(verbaGls)    : null,
+        verba_outros:      verbaOutros !== "" ? Number(verbaOutros) : null,
       };
 
       const { data, error } = await supabase
@@ -2081,17 +2160,48 @@ function EditClienteModal({
             />
           </div>
 
-          {/* Orçamento Mensal */}
+          {/* Verbas lado a lado — grid simétrico, altura padronizada */}
+          <div className="grid grid-cols-2 gap-3">
+            {activePlats.has('meta') && (
+            <div className="space-y-1.5">
+              <label className="text-[10px] text-[#4a4844] font-medium flex items-center gap-1 min-h-[1.25rem]">
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="#1877F2"><path d="M24 12.073c0-6.627-5.372-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+                Verba Meta Ads (R$)
+              </label>
+              <input
+                type="number" min="0" step="0.01" value={verbaMeta}
+                onChange={e => setVerbaMeta(e.target.value)}
+                placeholder="Ex: 3000.00"
+                className="w-full h-[42px] bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 py-2.5 text-sm text-[#e8e2d8] placeholder:text-[#4a4844] outline-none focus:border-blue-500/50 transition-colors"
+              />
+            </div>
+            )}
+            {activePlats.has('gls') && (
+            <div className="space-y-1.5">
+              <label className="text-[10px] text-[#4a4844] font-medium flex items-center gap-1 min-h-[1.25rem]">
+                <svg width="9" height="9" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="20" fill="#34A853"/><path d="M34.5858 17.5858L21.4142 30.7574L14.8284 24.1716L12 27L21.4142 36.4142L37.4142 20.4142L34.5858 17.5858Z" fill="white"/></svg>
+                Verba GLS (R$)
+              </label>
+              <input
+                type="number" min="0" step="0.01" value={verbaGls}
+                onChange={e => setVerbaGls(e.target.value)}
+                placeholder="Ex: 1500.00"
+                className="w-full h-[42px] bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 py-2.5 text-sm text-[#e8e2d8] placeholder:text-[#4a4844] outline-none focus:border-purple-500/50 transition-colors"
+              />
+            </div>
+            )}
+          </div>
+          {/* Outras verbas */}
           <div className="space-y-1.5">
-            <label className="text-[10px] text-[#4a4844] font-medium">Orçamento Mensal (R$)</label>
+            <label className="text-[10px] text-[#4a4844] font-medium">Outras Verbas (R$)</label>
             <input
               type="number"
               min="0"
               step="0.01"
-              value={orcamento}
-              onChange={e => setOrcamento(e.target.value)}
-              placeholder="Ex: 3000.00"
-              className="w-full bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 py-2.5 text-sm text-[#e8e2d8] placeholder:text-[#4a4844] outline-none focus:border-amber-500/60 transition-colors"
+              value={verbaOutros}
+              onChange={e => setVerbaOutros(e.target.value)}
+              placeholder="Ex: 500.00"
+              className="w-full bg-[#201f1d] border border-[#2e2c29] rounded-xl px-4 py-2.5 text-sm text-[#e8e2d8] placeholder:text-[#4a4844] outline-none focus:border-amber-500/50 transition-colors"
             />
           </div>
         </div>
@@ -2151,6 +2261,7 @@ function renderRadar({
   onCustomApply,
   verbaMeta,
   verbaGls,
+  moedaCliente,
 }: {
   data: MetaInsightData;
   preset: RadarPreset;
@@ -2163,10 +2274,12 @@ function renderRadar({
   onCustomApply: () => void;
   verbaMeta?: number | null;
   verbaGls?: number | null;
+  moedaCliente?: 'BRL' | 'USD' | null;
 }) {
   const fmt = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmtInt = (v: number) => v.toLocaleString("pt-BR");
-  const symbol = !data || (data.currency ?? "BRL") === "BRL" ? "R$" : "US$";
+  // moedaCliente has priority over API-reported currency (fixes sync bug)
+  const symbol = (moedaCliente ?? (data?.currency ?? "BRL")) === "USD" ? "US$" : "R$";
 
   const hasForm  = data && !data.loading && !data.error && data.form_leads > 0;
   const hasMsg   = data && !data.loading && !data.error && data.msg_leads  > 0;
@@ -2306,12 +2419,12 @@ function renderRadar({
                     </div>
                     <div className="w-px h-6 bg-[#2e2c29]" />
                     <div>
-                      <p className="text-[9px] text-[#4a4844] font-bold uppercase tracking-widest">Verba Planejada</p>
+                      <p className="text-[9px] text-[#4a4844] font-bold uppercase tracking-widest">Verba Configurada</p>
                       <p className="text-xs font-extrabold text-[#e8e2d8]">{symbol} {fmt(verbaMeta)}</p>
                     </div>
                     <div className="w-px h-6 bg-[#2e2c29]" />
                     <div>
-                      <p className="text-[9px] text-[#4a4844] font-bold uppercase tracking-widest">{restante >= 0 ? "Saldo" : "Excedente"}</p>
+                      <p className="text-[9px] text-[#4a4844] font-bold uppercase tracking-widest">{restante >= 0 ? "Saldo Disponível" : "Excedente"}</p>
                       <p className={`text-xs font-extrabold ${restante >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                         {restante >= 0 ? "" : "-"}{symbol} {fmt(Math.abs(restante))}
                       </p>
@@ -2435,7 +2548,7 @@ function renderRadar({
 
 // ─── RadarWrapper: componente com estado próprio ──────────────────────────────
 function RadarWrapper({
-  clienteId, accountId, token, data, onFetch, verbaMeta, verbaGls,
+  clienteId, accountId, token, data, onFetch, verbaMeta, verbaGls, moedaCliente,
 }: {
   clienteId: string;
   accountId: string;
@@ -2444,6 +2557,7 @@ function RadarWrapper({
   onFetch: (clienteId: string, accountId: string, token: string | null, since: string, until: string) => void;
   verbaMeta?: number | null;
   verbaGls?: number | null;
+  moedaCliente?: 'BRL' | 'USD' | null;
 }) {
   const [preset, setPreset]         = useState<RadarPreset>("7d");
   const [customFrom, setCustomFrom] = useState("");
@@ -2480,6 +2594,7 @@ function RadarWrapper({
     onCustomApply: handleCustomApply,
     verbaMeta,
     verbaGls,
+    moedaCliente,
   });
 }
 
@@ -2548,6 +2663,9 @@ function normalizeCliente(raw: Record<string, unknown>): Cliente {
     meta_leads_mensal:  raw.meta_leads_mensal  != null ? Number(raw.meta_leads_mensal)  : null,
     verba_meta_ads:     raw.verba_meta_ads     != null ? Number(raw.verba_meta_ads)     : null,
     verba_gls:          raw.verba_gls          != null ? Number(raw.verba_gls)          : null,
+    verba_outros:       raw.verba_outros       != null ? Number(raw.verba_outros)       : null,
+    gls_account_id:     (raw.gls_account_id    as string) ?? null,
+    moeda:              (raw.moeda as 'BRL' | 'USD' | null) ?? null,
   } as Cliente;
 }
 
@@ -2744,10 +2862,10 @@ export default function Home() {
     try {
       const { data, error } = await supabase
         .from("clientes")
-        .select("id, nome, operacao_id, gestor, gestor_estrategico, platforms, status, created_at, ordem, tipo_campanha, alerta_pagamento, meta_ad_account_id, meta_access_token, meta_status, meta_leads_mensal, verba_meta_ads, verba_gls")
+        .select("id, nome, operacao_id, gestor, gestor_estrategico, platforms, status, created_at, ordem, tipo_campanha, alerta_pagamento, meta_ad_account_id, meta_access_token, meta_status, meta_leads_mensal, verba_meta_ads, verba_gls, verba_outros, gls_account_id, moeda")
         .eq("operacao_id",operacaoId)
         .order("ordem",{ascending:true,nullsFirst:false})
-        .order("created_at",{ascending:true});
+        .order("created_at",{ascending:false});
       if (error) throw error;
       const rows = ((data as Record<string, unknown>[]) ?? []).map(normalizeCliente);
       setClientes(rows);
@@ -2897,6 +3015,8 @@ export default function Home() {
       if (exists) return prev.map(c=>c.id===normalized.id?normalized:c);
       return [normalized,...prev];
     });
+    // Se o modal foi aberto a partir da tela de detalhe, sincroniza clienteAtivo imediatamente
+    if (clienteAtivo?.id === normalized.id) setClienteAtivo(normalized);
     setClienteModal(null);
   };
 
@@ -3609,6 +3729,45 @@ export default function Home() {
                 <div className="space-y-3 flex-1 min-w-0">
                   <h2 className="text-xl font-extrabold tracking-tight">{clienteAtivo.nome}</h2>
 
+                  {/* ── Orçamento Total Planejado — banner de referência estático ── */}
+                  {(() => {
+                    const vm = clienteAtivo.verba_meta_ads ?? 0;
+                    const vg = clienteAtivo.verba_gls ?? 0;
+                    const vo = clienteAtivo.verba_outros ?? 0;
+                    const total = vm + vg + vo;
+                    if (total <= 0) return null;
+                    const isUSD = (clienteAtivo.moeda ?? "BRL") === "USD";
+                    const detailSym = isUSD ? "US$" : "R$";
+                    const detailLocale = isUSD ? "en-US" : "pt-BR";
+                    const fmtVal = (v: number) => `${detailSym} ${v.toLocaleString(detailLocale, { maximumFractionDigits: 0 })}`;
+                    return (
+                      <div className="flex flex-wrap items-center gap-2 px-3 py-2 rounded-xl bg-amber-500/6 border border-amber-500/20">
+                        <span className="text-[9px] font-bold uppercase tracking-widest text-amber-500/60 flex items-center gap-1">
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                          Orçamento Mensal Planejado
+                        </span>
+                        <span className="text-sm font-extrabold text-amber-400">
+                          {detailSym} {total.toLocaleString(detailLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                        {vm > 0 && (
+                          <span className="text-[9px] text-[#7a7268] font-semibold">
+                            Meta {fmtVal(vm)}
+                          </span>
+                        )}
+                        {vg > 0 && (
+                          <span className="text-[9px] text-[#7a7268] font-semibold">
+                            · GLS {fmtVal(vg)}
+                          </span>
+                        )}
+                        {vo > 0 && (
+                          <span className="text-[9px] text-[#7a7268] font-semibold">
+                            · Outros {fmtVal(vo)}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
+
                   {/* ── Barra de Meta Mensal no detalhe (base D-1) ── */}
                   {clienteAtivo.meta_leads_mensal != null && clienteAtivo.meta_leads_mensal > 0 && (() => {
                     // Usa apenas o valor do batch (D-1), consistente com o pacing dos cards
@@ -3682,7 +3841,7 @@ export default function Home() {
 
                 <div className="flex sm:flex-col gap-2 shrink-0 flex-wrap">
                 
-                  <button onClick={()=>setEditModal(clienteAtivo)}
+                  <button onClick={()=>setClienteModal({mode:"edit",client:clienteAtivo})}
                     className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#201f1d] border border-amber-500/30 text-amber-400 text-xs font-semibold hover:bg-amber-500/10 hover:border-amber-500/60 transition-colors whitespace-nowrap">
                     <Pencil size={14} /> Editar
                   </button>
@@ -3767,6 +3926,7 @@ export default function Home() {
                 onFetch={fetchMetaInsights}
                 verbaMeta={clienteAtivo.verba_meta_ads ?? null}
                 verbaGls={clienteAtivo.verba_gls ?? null}
+                moedaCliente={clienteAtivo.moeda ?? null}
               />
             )}
 
