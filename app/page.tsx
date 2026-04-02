@@ -2536,16 +2536,20 @@ function RadarWrapper({
 
   const symbol = (moedaCliente ?? (treeData?.currency ?? "BRL")) === "USD" ? "US$" : "R$";
 
-  // Dispara fetch ao montar e ao mudar preset (exceto custom)
+  // Dispara fetch apenas ao montar ou trocar de cliente (não ao mudar preset — o clique já faz isso)
   useEffect(() => {
-    if (preset === "custom") return;
-    const { since, until } = computeRadarDates(preset);
+    const { since, until } = computeRadarDates("7d");
     onFetch(clienteId, accountId, token, since, until);
+    setPreset("7d");
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clienteId, preset]);
+  }, [clienteId]);
 
   const handlePresetClick = (p: RadarPreset) => {
-    setPreset(p); setShowCustom(p === "custom");
+    setPreset(p);
+    setShowCustom(p === "custom");
+    if (p === "custom") return; // custom espera o usuário preencher as datas
+    const { since, until } = computeRadarDates(p);
+    onFetch(clienteId, accountId, token, since, until);
   };
   const handleCustomApply = () => {
     if (!customFrom || !customTo) return;
