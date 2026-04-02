@@ -2879,7 +2879,7 @@ export default function Home() {
         .select("id, nome, operacao_id, gestor, gestor_estrategico, platforms, status, created_at, ordem, tipo_campanha, alerta_pagamento, meta_ad_account_id, meta_access_token, meta_status, meta_leads_mensal, verba_meta_ads, verba_gls, verba_outros, gls_account_id, moeda")
         .eq("operacao_id",operacaoId)
         .order("ordem",{ascending:true,nullsFirst:false})
-        .order("created_at",{ascending:true});
+        .order("created_at",{ascending:false});
       if (error) throw error;
       const rows = ((data as Record<string, unknown>[]) ?? []).map(normalizeCliente);
       setClientes(rows);
@@ -3028,6 +3028,8 @@ export default function Home() {
       if (exists) return prev.map(c=>c.id===normalized.id?normalized:c);
       return [normalized,...prev];
     });
+    // Se o modal foi aberto a partir da tela de detalhe, sincroniza clienteAtivo imediatamente
+    if (clienteAtivo?.id === normalized.id) setClienteAtivo(normalized);
     setClienteModal(null);
   };
 
