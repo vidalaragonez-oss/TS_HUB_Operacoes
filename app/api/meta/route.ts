@@ -39,8 +39,11 @@ const OBJECTIVE_LABEL: Record<string, string> = {
   MESSAGES: "Mensagens", UNKNOWN: "—",
 };
 
+// Mapa estrito: objective → UMA action_type que define "resultado"
+// IMPORTANTE: "lead" e "onsite_conversion.lead_grouped" representam o MESMO lead.
+// Somar os dois duplica a contagem. Usar apenas "lead" (evento primário do formulário).
 const OBJECTIVE_ACTION_MAP: Record<string, string[]> = {
-  OUTCOME_LEADS:      ["lead", "onsite_conversion.lead_grouped"],
+  OUTCOME_LEADS:      ["lead"],   // ← só "lead", não somar com lead_grouped
   OUTCOME_ENGAGEMENT: ["post_engagement"],
   MESSAGES:           ["onsite_conversion.messaging_conversation_started_7d"],
   OUTCOME_TRAFFIC:    ["link_click"],
