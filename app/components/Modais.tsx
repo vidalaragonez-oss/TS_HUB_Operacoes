@@ -87,6 +87,7 @@ export interface Lead {
   operacao_id?: string;
   created_at?: string;
   charge_status?: string;
+  meta_lead_id?: string | null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
