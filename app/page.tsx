@@ -3246,6 +3246,8 @@ export default function Home() {
       // Silencioso — auto-sync não deve bloquear a UX
     }
   };
+
+  const handleDragEnd = useCallback(async (result: { source:{index:number}; destination:{index:number}|null }) => {
     if (!result.destination) return;
     const { source, destination } = result;
     if (source.index===destination.index) return;
