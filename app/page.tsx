@@ -1075,10 +1075,11 @@ function LeadAccordion({ leads, paginatedLeads, search, platFilter, dateFrom, da
   const allSelected = allFilteredIds.length>0&&allFilteredIds.every(id=>selected.has(id));
   const toggleAll = () => setSelected(allSelected?new Set():new Set(allFilteredIds));
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!selected.size) return;
     if (!confirm(`Excluir ${selected.size} lead(s) permanentemente? Esta ação afetará leads selecionados em todas as páginas.`)) return;
-    onDeleteSelected([...selected]);
+    const ids = [...selected];
+    await onDeleteSelected(ids);
     setSelected(new Set());
   };
 
@@ -1151,7 +1152,10 @@ function LeadAccordion({ leads, paginatedLeads, search, platFilter, dateFrom, da
                     <span className={`text-[10px] font-bold uppercase tracking-widest ${style.icon}`}>{plat}</span>
                     <span className="text-[10px] font-semibold text-[#7a7268] bg-[#1a1917] border border-[#2e2c29] px-2 py-0.5 rounded-full">{items.length}</span>
                   </div>
-                  <ChevronDown size={14} className={`transition-transform ${isOpen?"rotate-180":""} ${style.icon}`} />
+                  <div className="flex items-center gap-2" onClick={e=>e.stopPropagation()}>
+                    <button onClick={()=>{ const ids=itemsInThisPage.map(l=>l.id); const all=ids.length>0&&ids.every(id=>selected.has(id)); setSelected(prev=>{ const n=new Set(prev); if(all){ids.forEach(id=>n.delete(id));}else{ids.forEach(id=>n.add(id));} return n; }); }} className={`text-[9px] font-bold uppercase tracking-widest px-2 py-1 rounded-lg border transition-all ${itemsInThisPage.length>0&&itemsInThisPage.every(l=>selected.has(l.id))?`${style.icon} border-current bg-current/10`:"text-[#7a7268] border-[#2e2c29] hover:text-[#e8e2d8]"}`}>Selecionar</button>
+                    <ChevronDown size={14} className={`transition-transform ${isOpen?"rotate-180":""} ${style.icon}`} />
+                  </div>
                 </button>
                 {isOpen && (
                   <div className="p-3 space-y-2 bg-[#111010]/40">
@@ -1189,56 +1193,37 @@ function LeadAccordion({ leads, paginatedLeads, search, platFilter, dateFrom, da
                   <span className={`text-[10px] font-bold uppercase tracking-widest ${style.icon}`}>{plat}</span>
                   <span className="text-[10px] font-semibold text-[#7a7268] bg-[#1a1917] border border-[#2e2c29] px-2 py-0.5 rounded-full">{items.length}</span>
                 </div>
-                <ChevronDown size={14} className={`transition-transform ${isOpen?"rotate-180":""} ${style.icon}`} />
+                <div className="flex items-center gap-2" onClick={e=>e.stopPropagation()}>
+                  <button onClick={()=>{ const ids=itemsInThisPage.map(l=>l.id); const all=ids.length>0&&ids.every(id=>selected.has(id)); setSelected(prev=>{ const n=new Set(prev); if(all){ids.forEach(id=>n.delete(id));}else{ids.forEach(id=>n.add(id));} return n; }); }} className={`text-[9px] font-bold uppercase tracking-widest px-2 py-1 rounded-lg border transition-all ${itemsInThisPage.length>0&&itemsInThisPage.every(l=>selected.has(l.id))?`${style.icon} border-current bg-current/10`:"text-[#7a7268] border-[#2e2c29] hover:text-[#e8e2d8]"}`}>Selecionar desta plataforma</button>
+                  <ChevronDown size={14} className={`transition-transform ${isOpen?"rotate-180":""} ${style.icon}`} />
+                </div>
               </button>
               {isOpen&&(
                 <div className="divide-y divide-[#2e2c29]/50">
                   {/* Cabeçalho fixo alinhado com as colunas de dados */}
                   <div className="w-full overflow-x-auto pb-2">
-                  <div className={`flex items-center gap-3 px-4 py-2 bg-[#111010]/60 ${plat.toLowerCase().includes("google local") ? "min-w-[950px]" : "min-w-[800px]"}`}>
+                  <div className={`flex items-center gap-3 px-4 py-2 bg-[#111010]/60 ${plat.toLowerCase().includes("google local")?"min-w-[950px]":"min-w-[800px]"}`}>
                     <div className="w-3.5 h-3.5 shrink-0" />
-                    <div className={`flex-1 min-w-0 grid ${plat.toLowerCase().includes("google local") ? "grid-cols-[minmax(150px,_2fr)_minmax(130px,_1fr)_minmax(150px,_2fr)_minmax(100px,_1fr)_minmax(110px,_1fr)]" : "grid-cols-[minmax(150px,_2fr)_minmax(130px,_1fr)_minmax(150px,_2fr)_minmax(100px,_1fr)]"} gap-x-4`}>
+                    <div className={`flex-1 min-w-0 grid ${plat.toLowerCase().includes("google local")?"grid-cols-[minmax(150px,_2fr)_minmax(130px,_1fr)_minmax(150px,_2fr)_minmax(100px,_1fr)_minmax(110px,_1fr)]":"grid-cols-[minmax(150px,_2fr)_minmax(130px,_1fr)_minmax(150px,_2fr)_minmax(100px,_1fr)]"} gap-x-4`}>
                       <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Nome</p>
                       <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Telefone</p>
                       <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">E-mail</p>
                       <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Data</p>
-                      {plat.toLowerCase().includes("google local") && (
-                        <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Cobrança</p>
-                      )}
+                      {plat.toLowerCase().includes("google local")&&<p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844]">Cobrança</p>}
                     </div>
                   </div>
                   {itemsInThisPage.length > 0 ? (
                     itemsInThisPage.map(l=>(
-                      <div key={l.id} className={`flex items-start gap-3 px-4 py-3 hover:bg-[#201f1d]/40 transition-colors ${plat.toLowerCase().includes("google local") ? "min-w-[950px]" : "min-w-[800px]"}`}>
+                      <div key={l.id} className={`flex items-start gap-3 px-4 py-3 hover:bg-[#201f1d]/40 transition-colors ${plat.toLowerCase().includes("google local")?"min-w-[950px]":"min-w-[800px]"}`}>
                         <input type="checkbox" checked={selected.has(l.id)} onChange={()=>toggleSelect(l.id)}
                           className="mt-0.5 w-3.5 h-3.5 accent-amber-500 rounded cursor-pointer shrink-0"/>
-                        <div className={`flex-1 min-w-0 grid ${plat.toLowerCase().includes("google local") ? "grid-cols-[minmax(150px,_2fr)_minmax(130px,_1fr)_minmax(150px,_2fr)_minmax(100px,_1fr)_minmax(110px,_1fr)]" : "grid-cols-[minmax(150px,_2fr)_minmax(130px,_1fr)_minmax(150px,_2fr)_minmax(100px,_1fr)]"} gap-x-4 gap-y-1`}>
-                          <div>
-                            <p className="text-sm text-[#e8e2d8] truncate">{l.nome||"—"}</p>
-                          </div>
-                          <div>
-                            <p className="text-sm text-[#e8e2d8]">{l.telefone||"—"}</p>
-                          </div>
-                          <div>
-                            <p className="text-sm text-[#e8e2d8] truncate">{l.email||"—"}</p>
-                          </div>
-                          <div>
-                            <p className="text-sm text-[#e8e2d8]">{l.data||"—"}</p>
-                          </div>
-                          {plat.toLowerCase().includes("google local") && (
-                            <div>
-                              {l.charge_status ? (
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                                  l.charge_status.toLowerCase() === "charged"
-                                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-                                    : l.charge_status.toLowerCase() === "not charged"
-                                    ? "bg-red-500/15 text-red-400 border-red-500/30"
-                                    : "bg-amber-500/15 text-amber-400 border-amber-500/30"
-                                }`}>{l.charge_status}</span>
-                              ) : (
-                                <span className="text-xs text-[#4a4844]">—</span>
-                              )}
-                            </div>
+                        <div className={`flex-1 min-w-0 grid ${plat.toLowerCase().includes("google local")?"grid-cols-[minmax(150px,_2fr)_minmax(130px,_1fr)_minmax(150px,_2fr)_minmax(100px,_1fr)_minmax(110px,_1fr)]":"grid-cols-[minmax(150px,_2fr)_minmax(130px,_1fr)_minmax(150px,_2fr)_minmax(100px,_1fr)]"} gap-x-4 gap-y-1`}>
+                          <div><p className="text-sm text-[#e8e2d8] truncate">{l.nome||"—"}</p></div>
+                          <div><p className="text-sm text-[#e8e2d8]">{l.telefone||"—"}</p></div>
+                          <div><p className="text-sm text-[#e8e2d8] truncate">{l.email||"—"}</p></div>
+                          <div><p className="text-sm text-[#e8e2d8]">{l.data||"—"}</p></div>
+                          {plat.toLowerCase().includes("google local")&&(
+                            <div>{l.charge_status?(<span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${l.charge_status.toLowerCase()==="charged"?"bg-emerald-500/15 text-emerald-400 border-emerald-500/30":l.charge_status.toLowerCase()==="not charged"?"bg-red-500/15 text-red-400 border-red-500/30":"bg-amber-500/15 text-amber-400 border-amber-500/30"}`}>{l.charge_status}</span>):(<span className="text-xs text-[#4a4844]">—</span>)}</div>
                           )}
                         </div>
                       </div>
@@ -2717,9 +2702,10 @@ export default function Home() {
   const [allLeadsForDashboard, setAllLeadsForDashboard] = useState<Lead[]>([]);
   const [leadSearch, setLeadSearch]     = useState("");
   const [platFilter, setPlatFilter]     = useState("");
-  const [dateFrom, setDateFrom]         = useState("");
-  const [dateTo, setDateTo]             = useState("");
-  const [periodPreset, setPeriodPreset] = useState<PeriodPreset>("max");
+  const _initDates = (() => { const fmt=(d:Date)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; const y=new Date(); y.setDate(y.getDate()-1); const f=new Date(y); f.setDate(f.getDate()-6); return {from:fmt(f),to:fmt(y)}; })();
+  const [dateFrom, setDateFrom]         = useState(_initDates.from);
+  const [dateTo, setDateTo]             = useState(_initDates.to);
+  const [periodPreset, setPeriodPreset] = useState<PeriodPreset>("7d");
   const [itemsPerPage, setItemsPerPage] = useState(10); // Padrão: 10 itens por página
 
   const [clientSearch, setClientSearch] = useState("");
@@ -2965,7 +2951,8 @@ export default function Home() {
   const handleSelectCliente = useCallback((cliente: Cliente) => {
     scrollPosRef.current = window.scrollY; // Salva a posição
     setClienteAtivo(cliente); setLeadSearch(""); setPlatFilter("");
-    setDateFrom(""); setDateTo(""); setPeriodPreset("max"); setCurrentPage(1);
+    const _fmtL=(d:Date)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; const _y=new Date(); _y.setDate(_y.getDate()-1); const _f=new Date(_y); _f.setDate(_f.getDate()-6);
+    setDateFrom(_fmtL(_f)); setDateTo(_fmtL(_y)); setPeriodPreset("7d"); setCurrentPage(1);
     fetchLeads(cliente.id);
     window.scrollTo({ top: 0, behavior: "smooth" }); // Sobe suavemente
   }, [fetchLeads]);
@@ -3308,7 +3295,8 @@ export default function Home() {
 
   const backToDashboard = () => {
     setClienteAtivo(null); setLeadSearch(""); setPlatFilter("");
-    setDateFrom(""); setDateTo(""); setPeriodPreset("max");
+    const _fmtL=(d:Date)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; const _y=new Date(); _y.setDate(_y.getDate()-1); const _f=new Date(_y); _f.setDate(_f.getDate()-6);
+    setDateFrom(_fmtL(_f)); setDateTo(_fmtL(_y)); setPeriodPreset("7d");
     setTimeout(() => {
       window.scrollTo({ top: scrollPosRef.current, behavior: "instant" });
     }, 10); // Devolve pro pixel exato
