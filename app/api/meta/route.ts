@@ -39,13 +39,9 @@ const OBJECTIVE_LABEL: Record<string, string> = {
   MESSAGES: "Mensagens", UNKNOWN: "—",
 };
 
-// Mapa: objective → action_types em ordem de prioridade (OR, não soma)
-// OUTCOME_LEADS: prioriza leads NATIVOS do formulário antes do genérico
-//   "onsite_conversion.lead_grouped" = leads do formulário nativo Meta (bate com Ads Manager)
-//   "leadgen_grouped"                = fallback formulário legado
-//   "lead"                           = fallback genérico (inclui outras fontes)
 const OBJECTIVE_ACTION_MAP: Record<string, string[]> = {
-  OUTCOME_LEADS:      ["onsite_conversion.lead_grouped", "leadgen_grouped", "lead"],
+  // A ordem aqui é vital: busca o formulário nativo primeiro. Se achar, ignora o resto.
+  OUTCOME_LEADS:      ["leadgen_grouped", "onsite_conversion.lead_grouped", "lead"],
   OUTCOME_ENGAGEMENT: ["post_engagement"],
   MESSAGES:           ["onsite_conversion.messaging_conversation_started_7d"],
   OUTCOME_TRAFFIC:    ["link_click"],
@@ -57,27 +53,26 @@ function extractInsights(
 ): AdInsights {
   const targetTypes = OBJECTIVE_ACTION_MAP[objective];
   let results = 0;
-  let matchedType: string | null = null; // tipo vencedor — amarrado ao CPR
-
+  let matchedType = "";
   if (targetTypes) {
-    // OR logic: para no PRIMEIRO tipo com valor > 0 e salva qual foi
     for (const targetType of targetTypes) {
       const found = actions.find(a => a.action_type === targetType);
       if (found && parseInt(found.value ?? "0", 10) > 0) {
-        results    = parseInt(found.value, 10);
-        matchedType = targetType; // amarrado
-        break;
+        results = parseInt(found.value, 10);
+        matchedType = targetType; // Salva quem venceu a busca
+        break; // PARA A BUSCA IMEDIATAMENTE (Evita sobreposição)
       }
     }
   }
-
-  // CPR: busca EXATAMENTE o mesmo tipo que venceu nos resultados
   let cpr = 0;
+  // Busca o custo EXATAMENTE para o evento que venceu nos resultados
   if (matchedType) {
-    const found = cpaList.find(c => c.action_type === matchedType);
-    if (found) cpr = parseFloat(found.value ?? "0");
+    const foundCpa = cpaList.find(c => c.action_type === matchedType);
+    if (foundCpa && parseFloat(foundCpa.value ?? "0") > 0) {
+      cpr = parseFloat(foundCpa.value);
+    }
   }
-  // Fallback matemático se a API não retornar CPR para esse tipo
+  // Fallback de matemática
   if (cpr === 0 && results > 0) cpr = spend / results;
 
   return { spend, results, cpr };
