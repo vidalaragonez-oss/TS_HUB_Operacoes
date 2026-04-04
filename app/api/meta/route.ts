@@ -19,7 +19,7 @@ async function metaFetch(path: string, params: Record<string, string>) {
 }
 
 type ActionEntry = { action_type: string; value: string };
-interface AdInsights { spend: number; results: number; cpr: number; }
+interface AdInsights { spend: number; results: number; cpr: number; matchedType?: string; }
 interface AdNode { id: string; name: string; status: string; insights: AdInsights; }
 interface AdSetNode { id: string; name: string; status: string; insights: AdInsights; ads: AdNode[]; }
 interface CampaignNode {
@@ -85,7 +85,7 @@ function extractInsights(
     }
   }
   if (cpr === 0 && results > 0) cpr = spend / results;
-  return { spend, results, cpr };
+  return { spend, results, cpr, matchedType };
 }
 
 // ─── Descobre page_ids vinculados a uma conta de anúncios ─────────────────────
@@ -441,10 +441,15 @@ export async function GET(req: NextRequest) {
           totalSpend += campSpend;
           const objective = objectiveMap.get(campId) ?? "UNKNOWN";
           const ins = extractInsights((row.actions as ActionEntry[]) ?? [], (row.cost_per_action_type as ActionEntry[]) ?? [], campSpend, objective);
-          const campFormLeads = objective === "OUTCOME_LEADS" ? ins.results : 0;
-          const campMsgLeads  = objective === "MESSAGES"      ? ins.results : 0;
+          let campFormLeads = 0; let campMsgLeads = 0;
+          if (["onsite_conversion.lead_grouped", "leadgen", "leadgen_grouped", "lead"].includes(ins.matchedType || "")) {
+            campFormLeads = ins.results;
+          }
+          if (ins.matchedType === "onsite_conversion.messaging_conversation_started_7d") {
+            campMsgLeads = ins.results;
+          }
           totalFormLeads += campFormLeads; totalMsgLeads += campMsgLeads;
-          campaigns.push({ campaign_name: (row.campaign_name as string) ?? "Campanha", objective, objective_label: OL[objective] ?? objective, spend: campSpend.toFixed(2), form_leads: campFormLeads, msg_leads: campMsgLeads, form_cpl: objective === "OUTCOME_LEADS" ? ins.cpr : 0, msg_cpl: objective === "MESSAGES" ? ins.cpr : 0 });
+          campaigns.push({ campaign_name: (row.campaign_name as string) ?? "Campanha", objective, objective_label: OL[objective] ?? objective, spend: campSpend.toFixed(2), form_leads: campFormLeads, msg_leads: campMsgLeads, form_cpl: campFormLeads > 0 ? ins.cpr : 0, msg_cpl: campMsgLeads > 0 ? ins.cpr : 0 });
         }
       } catch { /* sem dados */ }
 
