@@ -660,7 +660,6 @@ export function ClienteModal({
     }
   };
 
-  const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<"perfil" | "campanhas" | "financeiro" | "integracoes">(initialTab ?? "perfil");
 
   return (
