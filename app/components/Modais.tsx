@@ -462,6 +462,7 @@ export function NovaOperacaoModal({ open, onClose, onSaved }: NovaOperacaoModalP
 // MODAL: NOVO / EDITAR CLIENTE
 // ═══════════════════════════════════════════════════════════════════════════════
 
+
 export interface ClienteModalProps {
   mode: "new" | "edit";
   initial?: Cliente;
@@ -480,6 +481,35 @@ export function ClienteModal({
   onSaved, onClose,
   initialTab,
 }: ClienteModalProps) {
+
+
+  // Busca filtrada por ativo_na_selecao = true
+  const {
+    estrategicos: gestoresEstratFiltrados,
+    trafego: gestoresTrafFiltrados,
+    loading: gestoresLoading,
+  } = useGestoresFiltrados(true);
+
+  // Merge: filtrados têm prioridade; props são fallback para quando o hook ainda não carregou
+  const gestoresEstrat = gestoresEstratFiltrados.length > 0 ? gestoresEstratFiltrados : gestoresEstratProp;
+  const gestoresTraf   = gestoresTrafFiltrados.length   > 0 ? gestoresTrafFiltrados   : gestoresTrafegoProp;
+
+  const [nome,          setNome]          = useState(initial?.nome ?? "");
+  const [gestor,        setGestor]        = useState(initial?.gestor ?? "");
+  const [gestorEstrat,  setGestorEstrat]  = useState(initial?.gestor_estrategico ?? "");
+  const [status,        setStatus]        = useState<ClienteStatus>(initial?.status ?? "ATIVO");
+
+  // Plataformas ativas
+  const [activePlats, setActivePlats] = useState<Set<PlatformKey>>(
+    () => new Set((initial?.platforms ?? []).map(p => p.key))
+  );
+
+  // Campanhas por plataforma — lidas do banco ao abrir
+  const [camps, setCamps] = useState<Record<PlatformKey, string[]>>(
+    () => buildInitialCamps(initial)
+  );
+
+  const [saving, setSaving] = useState(false);
 
   // ── Meta Ads Integration ────────────────────────────────────────────────
   const [metaToken,         setMetaToken]         = useState(initial?.meta_access_token ?? "");
@@ -671,7 +701,12 @@ export function ClienteModal({
         {/* Tab Navigation */}
         <div className="flex border-b border-[#2e2c29] bg-[#111010] shrink-0 px-1">
           {(["perfil", "campanhas", "financeiro", "integracoes"] as const).map(tab => {
-            const labels: Record<string, string> = { perfil: "👤 Perfil", campanhas: "🎯 Campanhas", financeiro: "💰 Financeiro", integracoes: "🔌 Integrações" };
+            const labels: Record<string, string> = {
+              perfil: "👤 Perfil",
+              campanhas: "🎯 Camps.",
+              financeiro: "💰 Financeiro",
+              integracoes: "🔌 Integrações",
+            };
             return (
               <button
                 key={tab}
