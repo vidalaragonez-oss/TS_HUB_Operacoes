@@ -105,6 +105,11 @@ export interface Cliente {
   gls_account_id?:    string | null;
   // ── Moeda ─────────────────────────────────────────────────────────────────
   moeda?:             'BRL' | 'USD' | null;
+  // ── Cache de Métricas Meta (Background Sync) ──────────────────────────────
+  meta_spend_cache?:  number | null;
+  meta_leads_cache?:  number | null;
+  meta_cpl_cache?:    number | null;
+  meta_last_sync?:    string | null;
 }
 
 export interface Lead {
