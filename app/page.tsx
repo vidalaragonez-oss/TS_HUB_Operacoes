@@ -1695,8 +1695,10 @@ function ClientCard({ client, onSelect, onEdit, onDeactivate, onDelete, onToggle
 
       {/* Row 3 — MetaGoalBar ancorada acima do rodapé (só aparece se tiver meta) */}
       {temMeta && (() => {
+        // API (metaData) é buscada sem período → mês corrente. Tem prioridade sobre banco local.
+        // NÃO usar Math.max: banco local conta uploads CSV, API conta conversões reais.
         const apiLeads = metaData?.total_leads ?? 0;
-        const totalResultados = Math.max(leadsDoMes ?? 0, apiLeads);
+        const totalResultados = apiLeads > 0 ? apiLeads : (leadsDoMes ?? 0);
         return (
           <div className="shrink-0 mt-1">
             <MetaGoalBar meta={client.meta_leads_mensal!} leadsDoMes={totalResultados} />
@@ -2821,6 +2823,19 @@ export default function Home() {
     error?: string;
   }>>({});
 
+  // Estado separado para insights do período filtrado (usado no Painel Visual)
+  // metaInsights = sempre mês corrente (para pacing/MetaGoalBar)
+  // metaInsightsFiltro = período do filtro do usuário (para Painel Visual)
+  const [metaInsightsFiltro, setMetaInsightsFiltro] = useState<Record<string, {
+    total_leads: number;
+    messages: number;
+    form_leads: number;
+    spend: number;
+    cpl: number;
+    since: string;
+    until: string;
+  }>>({});
+
   // ── Árvore Radar Meta (Campaigns → AdSets → Ads) ──────────────────────────
   const [metaTree, setMetaTree] = useState<Record<string, MetaTreeData>>({});
   const [viewMode, setViewMode]         = useState<ViewMode>("grid");
@@ -3052,6 +3067,8 @@ export default function Home() {
     if (cliente.meta_ad_account_id) {
       const { since, until } = computeRadarDates("7d");
       fetchMetaTree(cliente.id, cliente.meta_ad_account_id, cliente.meta_access_token ?? null, since, until);
+      // Busca insights do período padrão (7d) para o Painel Visual
+      fetchMetaInsights(cliente.id, cliente.meta_ad_account_id, cliente.meta_access_token ?? null, since, until);
     }
     // Auto-sync silencioso de leads Meta
     if (cliente.meta_ad_account_id && operacaoAtiva) {
@@ -3218,8 +3235,11 @@ export default function Home() {
     since?: string,
     until?: string,
   ) => {
+    // Com período → atualiza metaInsightsFiltro (Painel Visual do período)
+    // Sem período → busca mês corrente e atualiza metaInsights (pacing/MetaGoalBar)
+    const isFiltrado = !!(since && until);
     const zero = { account_status: 0, spend: 0, leads: 0, messages: 0, total_leads: 0, cpl: 0, currency: "BRL", form_leads: 0, form_spend: 0, form_cpl: 0, msg_leads: 0, msg_spend: 0, msg_cpl: 0, other_spend: 0, other_count: 0, other_campaigns: [] as OtherCampaignDetail[] };
-    setMetaInsights(prev => ({ ...prev, [clienteId]: { ...zero, loading: true } }));
+    if (!isFiltrado) setMetaInsights(prev => ({ ...prev, [clienteId]: { ...zero, loading: true } }));
     try {
       const params = new URLSearchParams({ action: "insights", account_id: accountId });
       if (token) params.set("token", token);
@@ -3237,33 +3257,54 @@ export default function Home() {
       const res  = await fetch(`/api/meta?${params}`);
       const json = await res.json();
       if (json.error) throw new Error(json.error);
-      setMetaInsights(prev => ({
-        ...prev,
-        [clienteId]: {
-          account_status:  json.account_status,
-          spend:           json.spend,
-          leads:           json.leads           ?? 0,
-          messages:        json.messages        ?? 0,
-          total_leads:     json.total_leads,
-          cpl:             json.cpl,
-          currency:        json.currency        ?? "BRL",
-          form_leads:      json.form_leads      ?? 0,
-          form_spend:      json.form_spend      ?? 0,
-          form_cpl:        json.form_cpl        ?? 0,
-          msg_leads:       json.msg_leads       ?? 0,
-          msg_spend:       json.msg_spend       ?? 0,
-          msg_cpl:         json.msg_cpl         ?? 0,
-          other_spend:     json.other_spend     ?? 0,
-          other_count:     json.other_count     ?? 0,
-          other_campaigns: json.other_campaigns ?? [],
-          loading:         false,
-        },
-      }));
+
+      if (isFiltrado) {
+        // Período filtrado → grava em metaInsightsFiltro (Painel Visual)
+        // NÃO sobrescreve metaInsights (mês corrente) para não quebrar o pacing
+        setMetaInsightsFiltro(prev => ({
+          ...prev,
+          [clienteId]: {
+            total_leads: json.total_leads ?? 0,
+            messages:    json.msg_leads   ?? 0,
+            form_leads:  json.form_leads  ?? 0,
+            spend:       json.spend       ?? 0,
+            cpl:         json.cpl         ?? 0,
+            since:       since!,
+            until:       until!,
+          },
+        }));
+      } else {
+        // Sem período → mês corrente → grava em metaInsights (pacing/MetaGoalBar)
+        setMetaInsights(prev => ({
+          ...prev,
+          [clienteId]: {
+            account_status:  json.account_status,
+            spend:           json.spend,
+            leads:           json.leads           ?? 0,
+            messages:        json.messages        ?? 0,
+            total_leads:     json.total_leads,
+            cpl:             json.cpl,
+            currency:        json.currency        ?? "BRL",
+            form_leads:      json.form_leads      ?? 0,
+            form_spend:      json.form_spend      ?? 0,
+            form_cpl:        json.form_cpl        ?? 0,
+            msg_leads:       json.msg_leads       ?? 0,
+            msg_spend:       json.msg_spend       ?? 0,
+            msg_cpl:         json.msg_cpl         ?? 0,
+            other_spend:     json.other_spend     ?? 0,
+            other_count:     json.other_count     ?? 0,
+            other_campaigns: json.other_campaigns ?? [],
+            loading:         false,
+          },
+        }));
+      }
     } catch (err: unknown) {
-      setMetaInsights(prev => ({
-        ...prev,
-        [clienteId]: { account_status: -1, spend: 0, leads: 0, messages: 0, total_leads: 0, cpl: 0, currency: "BRL", form_leads: 0, form_spend: 0, form_cpl: 0, msg_leads: 0, msg_spend: 0, msg_cpl: 0, other_spend: 0, other_count: 0, other_campaigns: [], loading: false, error: (err as Error).message },
-      }));
+      if (!isFiltrado) {
+        setMetaInsights(prev => ({
+          ...prev,
+          [clienteId]: { account_status: -1, spend: 0, leads: 0, messages: 0, total_leads: 0, cpl: 0, currency: "BRL", form_leads: 0, form_spend: 0, form_cpl: 0, msg_leads: 0, msg_spend: 0, msg_cpl: 0, other_spend: 0, other_count: 0, other_campaigns: [], loading: false, error: (err as Error).message },
+        }));
+      }
     }
   };
 
@@ -3571,11 +3612,30 @@ export default function Home() {
     onDelete:        ()=>handleDelete(c.id),
     onToggleAlerta:  ()=>handleToggleAlerta(c.id),
     metaData:        metaInsights[c.id] ?? null,
-    onRefreshMeta:   () => c.meta_ad_account_id
-      ? fetchMetaInsights(c.id, c.meta_ad_account_id, c.meta_access_token ?? null, dateFrom || undefined, dateTo || undefined)
-      : undefined,
+    onRefreshMeta:   () => {
+      if (!c.meta_ad_account_id) return;
+      // Sempre atualiza mês corrente (sem período) para pacing
+      fetchMetaInsights(c.id, c.meta_ad_account_id, c.meta_access_token ?? null);
+      // E período filtrado para Painel Visual
+      if (dateFrom && dateTo) {
+        fetchMetaInsights(c.id, c.meta_ad_account_id, c.meta_access_token ?? null, dateFrom, dateTo);
+      }
+    },
     leadsDoMes:      leadsDoMesPorCliente[c.id] ?? 0,
   });
+
+  // Refaz a busca de insights filtrados quando o período muda dentro da view de cliente
+  useEffect(() => {
+    if (!clienteAtivo?.meta_ad_account_id || !dateFrom || !dateTo) return;
+    fetchMetaInsights(
+      clienteAtivo.id,
+      clienteAtivo.meta_ad_account_id,
+      clienteAtivo.meta_access_token ?? null,
+      dateFrom,
+      dateTo,
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateFrom, dateTo, clienteAtivo?.id]);
 
   const backToDashboard = () => {
     setClienteAtivo(null); setLeadSearch(""); setPlatFilter("");
@@ -4067,8 +4127,10 @@ export default function Home() {
                   {/* ── Barra de Meta Mensal no detalhe (base D-1) ── */}
                   {clienteAtivo.meta_leads_mensal != null && clienteAtivo.meta_leads_mensal > 0 && (() => {
                     const leadsDoMes = leadsDoMesPorCliente[clienteAtivo.id] ?? 0;
+                    // metaInsights é buscado sem período ao entrar no cliente → mês corrente
+                    // Tem prioridade sobre banco local (CSV uploads)
                     const apiLeads = metaInsights[clienteAtivo.id]?.total_leads ?? 0;
-                    const totalResultados = Math.max(leadsDoMes, apiLeads);
+                    const totalResultados = apiLeads > 0 ? apiLeads : leadsDoMes;
                     return (
                       <div className="mt-1">
                         <MetaGoalBar meta={clienteAtivo.meta_leads_mensal} leadsDoMes={totalResultados} />
@@ -4328,29 +4390,39 @@ export default function Home() {
               </div>
             </div>
 
-            {/* ── Painel de Resultados da API (Mensagens/Leads) ── */}
-            {clienteAtivo.meta_ad_account_id && metaInsights[clienteAtivo.id] && metaInsights[clienteAtivo.id].total_leads > 0 && (
-              <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4 flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-1 flex items-center gap-1.5">
-                    <Activity size={12} /> Resultados Oficiais (Meta API)
-                  </p>
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-2xl font-bold text-[#e8e2d8]">{metaInsights[clienteAtivo.id].total_leads}</span>
-                    <span className="text-xs text-[#7a7268]">conversões no período</span>
+            {/* ── Painel de Resultados da API (período filtrado) ── */}
+            {(() => {
+              const filtro = metaInsightsFiltro[clienteAtivo.id];
+              const periodoOk = filtro && dateFrom && dateTo &&
+                filtro.since === dateFrom && filtro.until === dateTo;
+              if (!clienteAtivo.meta_ad_account_id || !periodoOk || filtro.total_leads === 0) return null;
+              return (
+                <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4 flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-1 flex items-center gap-1.5">
+                      <Activity size={12} /> Resultados Oficiais (Meta API)
+                    </p>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-2xl font-bold text-[#e8e2d8]">{filtro.total_leads}</span>
+                      <span className="text-xs text-[#7a7268]">conversões no período</span>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-[10px] text-[#7a7268] font-semibold uppercase tracking-widest mb-1">Distribuição</p>
+                    {filtro.messages > 0 && (
+                      <p className="text-xs text-[#e8e2d8]">
+                        <span className="text-blue-400 font-bold">{filtro.messages}</span> Mensagens (Direct/Whats/Msgr)
+                      </p>
+                    )}
+                    {filtro.form_leads > 0 && (
+                      <p className="text-xs text-[#e8e2d8]">
+                        <span className="text-emerald-400 font-bold">{filtro.form_leads}</span> Formulários Nativos
+                      </p>
+                    )}
                   </div>
                 </div>
-                <div className="text-right shrink-0">
-                  <p className="text-[10px] text-[#7a7268] font-semibold uppercase tracking-widest mb-1">Distribuição</p>
-                  <p className="text-xs text-[#e8e2d8]">
-                    <span className="text-blue-400 font-bold">{metaInsights[clienteAtivo.id].messages}</span> Mensagens (Direct/Whats/Msgr)
-                  </p>
-                  <p className="text-xs text-[#e8e2d8]">
-                    <span className="text-emerald-400 font-bold">{metaInsights[clienteAtivo.id].form_leads}</span> Formulários Nativos
-                  </p>
-                </div>
-              </div>
-            )}
+              );
+            })()}
 
             {!leadsLoading&&<ClienteDashboard leads={filteredDashboardLeads}/>}
 
