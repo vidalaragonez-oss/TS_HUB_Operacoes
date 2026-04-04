@@ -480,35 +480,6 @@ export function ClienteModal({
   onSaved, onClose,
   initialTab,
 }: ClienteModalProps) {
-  // Busca filtrada por ativo_na_selecao = true
-  const {
-    estrategicos: gestoresEstratFiltrados,
-    trafego: gestoresTrafFiltrados,
-    loading: gestoresLoading,
-  } = useGestoresFiltrados(true);
-
-  // Merge: filtrados têm prioridade; props são fallback para quando o hook ainda não carregou
-  const gestoresEstrat = gestoresEstratFiltrados.length > 0 ? gestoresEstratFiltrados : gestoresEstratProp;
-  const gestoresTraf   = gestoresTrafFiltrados.length   > 0 ? gestoresTrafFiltrados   : gestoresTrafegoProp;
-
-  const [nome,          setNome]          = useState(initial?.nome ?? "");
-  const [gestor,        setGestor]        = useState(initial?.gestor ?? "");
-  const [gestorEstrat,  setGestorEstrat]  = useState(initial?.gestor_estrategico ?? "");
-  const [status,        setStatus]        = useState<ClienteStatus>(initial?.status ?? "ATIVO");
-
-  // Plataformas ativas
-  const [activePlats, setActivePlats] = useState<Set<PlatformKey>>(
-    () => new Set((initial?.platforms ?? []).map(p => p.key))
-  );
-
-  // Campanhas por plataforma — lidas do banco ao abrir
-  const [camps, setCamps] = useState<Record<PlatformKey, string[]>>(
-    () => buildInitialCamps(initial)
-  );
-
-
-  const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<"perfil" | "campanhas" | "financeiro" | "integracoes">(initialTab ?? "perfil");
 
   // ── Meta Ads Integration ────────────────────────────────────────────────
   const [metaToken,         setMetaToken]         = useState(initial?.meta_access_token ?? "");
@@ -659,6 +630,9 @@ export function ClienteModal({
     }
   };
 
+  const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState<"perfil" | "campanhas" | "financeiro" | "integracoes">(initialTab ?? "perfil");
+
   return (
     <div
       className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center"
@@ -696,28 +670,23 @@ export function ClienteModal({
 
         {/* Tab Navigation */}
         <div className="flex border-b border-[#2e2c29] bg-[#111010] shrink-0 px-1">
-          {(
-            [
-              { key: "perfil" as const,      label: "Perfil",       icon: "👤" },
-              { key: "campanhas" as const,    label: "Campanhas",    icon: "🎯" },
-              { key: "financeiro" as const,   label: "Financeiro",   icon: "💰" },
-              { key: "integracoes" as const,  label: "Integrações",  icon: "🔌" },
-            ]
-          ).map(tab => (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-1.5 px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider border-b-2 transition-all whitespace-nowrap ${
-                activeTab === tab.key
-                  ? "border-amber-500 text-amber-400"
-                  : "border-transparent text-[#4a4844] hover:text-[#7a7268]"
-              }`}
-            >
-              <span>{tab.icon}</span>
-              <span className="hidden sm:inline">{tab.label}</span>
-            </button>
-          ))}
+          {(["perfil", "campanhas", "financeiro", "integracoes"] as const).map(tab => {
+            const labels: Record<string, string> = { perfil: "👤 Perfil", campanhas: "🎯 Campanhas", financeiro: "💰 Financeiro", integracoes: "🔌 Integrações" };
+            return (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setActiveTab(tab)}
+                className={`px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider border-b-2 transition-all whitespace-nowrap ${
+                  activeTab === tab
+                    ? "border-amber-500 text-amber-400"
+                    : "border-transparent text-[#4a4844] hover:text-[#7a7268]"
+                }`}
+              >
+                {labels[tab]}
+              </button>
+            );
+          })}
         </div>
 
         {/* Body */}
@@ -725,8 +694,8 @@ export function ClienteModal({
           className="flex-1 overflow-y-auto px-5 py-5 space-y-5"
           style={{ WebkitOverflowScrolling: "touch", overscrollBehavior: "contain" }}
         >
-          {/* ── ABA: PERFIL ────────────────────────────────────────────── */}
-          {activeTab === "perfil" && (<>
+          {activeTab === "perfil" && (
+            <div className="space-y-5">
           {/* Nome */}
           <div className="space-y-1.5">
             <label className="text-[10px] font-bold uppercase tracking-widest text-[#7a7268]">Nome do Cliente</label>
@@ -825,11 +794,11 @@ export function ClienteModal({
               </div>
             </div>
           )}
+            </div>
+          )}
 
-          </>)}
-
-          {/* ── ABA: CAMPANHAS ─────────────────────────────────────────── */}
-          {activeTab === "campanhas" && (<>
+          {activeTab === "campanhas" && (
+            <div className="space-y-5">
           {/* Plataformas + Campanhas dinâmicas */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
@@ -897,8 +866,11 @@ export function ClienteModal({
               );
             })}
           </div>
+            </div>
+          )}
 
-
+          {activeTab === "financeiro" && (
+            <div className="space-y-5">
           {/* ── Metas & Orçamentos ──────────────────────────────────────────────── */}
           <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 space-y-4">
             <div className="flex items-center gap-2">
@@ -907,10 +879,6 @@ export function ClienteModal({
               </div>
               <label className="text-[10px] font-bold uppercase tracking-widest text-[#7a7268]">Metas &amp; Orçamento Mensal</label>
             </div>
-          </>)}
-
-          {/* ── ABA: FINANCEIRO ────────────────────────────────────────── */}
-          {activeTab === "financeiro" && (<>
             {/* Meta de Leads */}
             <div className="space-y-1.5">
               <label className="text-[10px] text-[#4a4844] font-medium flex items-center gap-1">
@@ -995,11 +963,11 @@ export function ClienteModal({
               );
             })()}
           </div>
+            </div>
+          )}
 
-          </>)}
-
-          {/* ── ABA: INTEGRAÇÕES ───────────────────────────────────────── */}
-          {activeTab === "integracoes" && (<>
+          {activeTab === "integracoes" && (
+            <div className="space-y-5">
           {/* ── IDs de Integração ────────────────────────────────────────────── */}
           <div className="space-y-3">
             <div className="flex items-center gap-2">
@@ -1234,14 +1202,15 @@ export function ClienteModal({
           </div>
 
           <div className="pb-2" />
-          </>)}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
         <div className="shrink-0 px-5 py-4 border-t border-[#2e2c29] flex gap-3 bg-[#111010]">
           <button onClick={onClose}
             className="flex-1 py-2.5 rounded-xl bg-[#201f1d] border border-[#2e2c29] text-[#7a7268] text-sm font-semibold hover:text-[#e8e2d8] transition-colors">
-             Cancelar
+            Cancelar
           </button>
           <button onClick={handleSave} disabled={saving}
             className="flex-1 py-2.5 rounded-xl bg-amber-500 text-[#111] text-sm font-bold hover:bg-amber-400 active:scale-95 transition-all shadow-[0_4px_16px_rgba(245,166,35,0.3)] disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2">
