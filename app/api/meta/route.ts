@@ -40,11 +40,13 @@ const OBJECTIVE_LABEL: Record<string, string> = {
 };
 
 const OBJECTIVE_ACTION_MAP: Record<string, string[]> = {
-  OUTCOME_LEADS:      ["onsite_conversion.lead_grouped", "leadgen", "leadgen_grouped", "lead"],
+  // Prioridade Leads: Form Nativo -> Mensagens -> Genérico
+  OUTCOME_LEADS:      ["onsite_conversion.lead_grouped", "leadgen", "leadgen_grouped", "onsite_conversion.messaging_conversation_started_7d", "lead"],
+  // Prioridade Engajamento: Mensagens -> Curtidas
   OUTCOME_ENGAGEMENT: ["onsite_conversion.messaging_conversation_started_7d", "post_engagement"],
   MESSAGES:           ["onsite_conversion.messaging_conversation_started_7d"],
   OUTCOME_TRAFFIC:    ["link_click"],
-  // Adicionado o evento de mensagens para campanhas de Venda no WhatsApp
+  // Prioridade Vendas: Compras -> Mensagens
   OUTCOME_SALES:      ["purchase", "omni_purchase", "onsite_conversion.messaging_conversation_started_7d"],
 };
 
@@ -53,29 +55,20 @@ function extractInsights(
 ): AdInsights {
   let results = 0;
   let matchedType = "";
-  if (objective === "OUTCOME_LEADS" || objective === "LEAD_GENERATION") {
-    const leadActions = actions.filter(a => a.action_type.includes("lead"));
-    if (leadActions.length > 0) {
-      const specific = leadActions.find(a => a.action_type !== "lead");
-      const winner = specific || leadActions.find(a => a.action_type === "lead");
-      if (winner) {
-        results = parseInt(winner.value ?? "0", 10);
-        matchedType = winner.action_type;
-      }
-    }
-  } else {
-    const targetTypes = OBJECTIVE_ACTION_MAP[objective];
-    if (targetTypes) {
-      for (const targetType of targetTypes) {
-        const found = actions.find(a => a.action_type === targetType);
-        if (found && parseInt(found.value ?? "0", 10) > 0) {
-          results = parseInt(found.value, 10);
-          matchedType = targetType;
-          break;
-        }
-      }
+
+  // Usa sempre o OBJECTIVE_ACTION_MAP como fonte da verdade (ordem = prioridade).
+  // Isso garante que campanhas OUTCOME_LEADS criadas como WhatsApp/Mensagens
+  // também sejam capturadas via messaging_conversation_started_7d.
+  const targetTypes = OBJECTIVE_ACTION_MAP[objective] ?? OBJECTIVE_ACTION_MAP["OUTCOME_LEADS"];
+  for (const targetType of targetTypes) {
+    const found = actions.find(a => a.action_type === targetType);
+    if (found && parseInt(found.value ?? "0", 10) > 0) {
+      results = parseInt(found.value, 10);
+      matchedType = targetType;
+      break;
     }
   }
+
   let cpr = 0;
   if (matchedType) {
     const foundCpa = cpaList.find(c => c.action_type === matchedType);
