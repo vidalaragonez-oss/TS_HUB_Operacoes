@@ -42,6 +42,7 @@ import {
   Bug,
   Bell,
   CreditCard,
+  AlertTriangle,
 } from "lucide-react";
 import {
   NovaOperacaoModal,
@@ -1882,9 +1883,9 @@ const CAMP_CHIP_COLOR: Record<PlatformKey, string> = {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const EDIT_STATUS_OPTIONS: { value: ClienteStatus; label: string }[] = [
-  { value: "ATIVO",        label: "✅ Ativo"         },
-  { value: "SEM CAMPANHA", label: "⚠️ Sem Campanha"  },
-  { value: "CANCELAMENTO", label: "🚫 Cancelamento"  },
+  { value: "ATIVO",        label: "Ativo"            },
+  { value: "SEM CAMPANHA", label: "Sem Campanha"     },
+  { value: "CANCELAMENTO", label: "Cancelamento"     },
 ];
 
 function EditClienteModal({
@@ -3156,7 +3157,7 @@ export default function Home() {
       if (error) throw error;
       setClientes(prev => prev.map(x => x.id===id ? {...x, alerta_pagamento: novoValor} : x));
       toast[novoValor ? "warning" : "success"](
-        novoValor ? `⚠️ Alerta de pagamento ativado para ${c.nome}` : `✅ Alerta removido de ${c.nome}`
+        novoValor ? `Alerta de pagamento ativado para ${c.nome}` : `Alerta removido de ${c.nome}`
       );
     } catch (err: unknown) {
       toast.error(`Erro: ${err instanceof Error ? err.message : "Erro desconhecido"}`);
@@ -3263,7 +3264,7 @@ export default function Home() {
     operacaoNome: string,
   ) => {
     try {
-      toast.loading("🧹 Removendo duplicatas e leads incorretos...", { id: "cleanup" });
+      toast.loading("Removendo duplicatas e leads incorretos...", { id: "cleanup" });
 
       // Passo 1: Remove TODOS os leads com meta_lead_id deste cliente
       // (leads manuais sem meta_lead_id não são afetados)
@@ -3274,14 +3275,14 @@ export default function Home() {
         .not("meta_lead_id", "is", null);
       if (delError) throw delError;
 
-      toast.loading("🔄 Re-sincronizando leads corretos...", { id: "cleanup" });
+      toast.loading("Re-sincronizando leads corretos...", { id: "cleanup" });
 
       // Passo 2: Re-sincroniza com lógica account-scoped
       await syncMetaLeads(clienteId, accountId, token, operacaoId, operacaoNome);
 
       // Passo 3: Recarrega leads na tela
       await fetchLeads(clienteId);
-      toast.success("✅ Leads Meta re-sincronizados!", { id: "cleanup" });
+      toast.success("Leads Meta re-sincronizados!", { id: "cleanup" });
     } catch (err: unknown) {
       toast.error(`Erro: ${err instanceof Error ? err.message : "Erro desconhecido"}`, { id: "cleanup" });
     }
@@ -3356,7 +3357,7 @@ export default function Home() {
       if (error) throw error;
       if (inserted?.length) {
         setAllLeadsForDashboard(prev => [...((inserted as Lead[]) ?? []), ...prev]);
-        toast.success(`✅ ${inserted.length} lead(s) Meta sincronizado(s).`);
+        toast.success(`${inserted.length} lead(s) Meta sincronizado(s).`);
       }
     } catch (err: unknown) {
       console.error("[syncMetaLeads] Erro:", err instanceof Error ? err.message : String(err));
@@ -3762,7 +3763,7 @@ export default function Home() {
                             : "bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20"
                         }`}>
                         <CreditCard size={11} />
-                        ⚠️ Ver Pendências ({clientes.filter(c=>c.alerta_pagamento).length})
+                        <><AlertTriangle size={11} className="shrink-0" /> Ver Pendências ({clientes.filter(c=>c.alerta_pagamento).length})</>
                       </button>
                     )}
                   </>
