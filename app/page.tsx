@@ -1413,9 +1413,9 @@ type MetaInsightData = {
   error?: string;
 } | null;
 
-function MetaDot({ accountId, data, onRefresh }: {
+function MetaDot({ accountId, lastSync, onRefresh }: {
   accountId?: string | null;
-  data: MetaInsightData;
+  lastSync?: string | null;
   onRefresh: () => void;
 }) {
   if (!accountId) {
@@ -1424,65 +1424,60 @@ function MetaDot({ accountId, data, onRefresh }: {
         className="w-2 h-2 rounded-full bg-[#3a3835] shrink-0 inline-block" />
     );
   }
-  if (!data || data.loading) {
-    return (
-      <span title="Carregando dados Meta..."
-        className="w-2 h-2 rounded-full bg-[#3a3835] shrink-0 inline-block animate-pulse" />
-    );
-  }
-  if (data.error) {
+  if (!lastSync) {
     return (
       <button onClick={e=>{e.stopPropagation();onRefresh();}}
-        title={`Erro: ${data.error} — clique para tentar novamente`}
-        className="w-2 h-2 rounded-full bg-amber-500 shrink-0 inline-block hover:scale-125 transition-transform" />
+        title="Sem dados em cache — aguardando próximo sync"
+        className="w-2 h-2 rounded-full bg-[#3a3835] shrink-0 inline-block hover:scale-125 transition-transform animate-pulse" />
     );
   }
-  const isActive = data.account_status === 1;
+  // Considera cache "fresco" se sincronizado há menos de 25h
+  const horasDesdeSync = (Date.now() - new Date(lastSync).getTime()) / 3_600_000;
+  const fresco = horasDesdeSync < 25;
+  const syncLabel = new Date(lastSync).toLocaleString("pt-BR", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" });
   return (
     <button onClick={e=>{e.stopPropagation();onRefresh();}}
-      title={isActive ? "Meta Ads ativo — clique para atualizar" : "Meta Ads com problema — clique para atualizar"}
-      className={`w-2 h-2 rounded-full shrink-0 inline-block hover:scale-125 transition-transform ${isActive ? "bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.7)]" : "bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.7)]"}`} />
+      title={`Meta Ads · Sync: ${syncLabel} — clique para forçar atualização`}
+      className={`w-2 h-2 rounded-full shrink-0 inline-block hover:scale-125 transition-transform ${fresco ? "bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.7)]" : "bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.7)]"}`} />
   );
 }
 
 // MetaSummary — Visão Externa (lista de clientes)
-// Mostra apenas Formulário + Mensagens (dados dos últimos 7 dias).
-// "Outros Objetivos" são omitidos intencionalmente aqui.
-function MetaSummary({ data }: { data: MetaInsightData }) {
-  if (!data || data.loading || data.error || !data.account_status) return null;
+// Exibe dados do cache (meta_*_cache) gravados pelo cron de sync.
+// Zero chamadas à API no carregamento — performance instantânea.
+function MetaSummary({ client }: { client: Cliente }) {
+  const spend = client.meta_spend_cache;
+  const leads = client.meta_leads_cache;
+  const cpl   = client.meta_cpl_cache;
+  const moeda = client.moeda ?? "BRL";
+
+  if (!spend && !leads) return null;
 
   const fmt    = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmtInt = (v: number) => v.toLocaleString("pt-BR");
-  const symbol = (data.currency ?? "BRL") === "USD" ? "US$" : "R$";
-
-  // Soma leads e mensagens diretamente das chaves raiz do backend
-  const bizLeads = (data.leads ?? 0) + (data.messages ?? 0);
-  const bizCpl   = bizLeads > 0 ? data.spend / bizLeads : 0;
-
-  // Se não houve nenhum gasto relevante, não mostra nada
-  if (data.spend === 0) return null;
+  const symbol = moeda === "USD" ? "US$" : "R$";
 
   return (
     <div className="flex items-center gap-1.5 flex-wrap mt-1">
       {/* Gasto */}
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#201f1d] border border-[#2e2c29] text-[#7a7268]">
-        <Activity size={9} className="text-[#4a4844]" />
-        {symbol} {fmt(data.spend)}
-      </span>
-
-      {/* Resultados — só aparece se houver leads/msg reais */}
-      {bizLeads > 0 && (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/8 border border-blue-500/25 text-blue-400">
-          <Target size={9} />
-          {fmtInt(bizLeads)} leads/msg
+      {spend != null && spend > 0 && (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#201f1d] border border-[#2e2c29] text-[#7a7268]">
+          <Activity size={9} className="text-[#4a4844]" />
+          {symbol} {fmt(spend)}
         </span>
       )}
-
-      {/* CPL — só aparece se houver resultados */}
-      {bizLeads > 0 && (
+      {/* Leads */}
+      {leads != null && leads > 0 && (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/8 border border-blue-500/25 text-blue-400">
+          <Target size={9} />
+          {fmtInt(leads)} leads/msg
+        </span>
+      )}
+      {/* CPL */}
+      {cpl != null && cpl > 0 && (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/8 border border-emerald-500/25 text-emerald-400">
           <Zap size={9} />
-          CPL {symbol} {fmt(bizCpl)}
+          CPL {symbol} {fmt(cpl)}
         </span>
       )}
     </div>
@@ -1602,9 +1597,9 @@ function MetaGoalBar({
 }
 
 // ─── Client Card ──────────────────────────────────────────────────────────────
-function ClientCard({ client, onSelect, onEdit, onDeactivate, onDelete, onToggleAlerta, metaData, onRefreshMeta, isDragging, leadsDoMes }: {
+function ClientCard({ client, onSelect, onEdit, onDeactivate, onDelete, onToggleAlerta, onRefreshMeta, isDragging, leadsDoMes }: {
   client:Cliente; onSelect:()=>void; onEdit:()=>void; onDeactivate:()=>void; onDelete:()=>void;
-  onToggleAlerta:()=>void; metaData: MetaInsightData; onRefreshMeta:()=>void; isDragging?:boolean;
+  onToggleAlerta:()=>void; onRefreshMeta:()=>void; isDragging?:boolean;
   leadsDoMes?: number;
 }) {
   const st=clienteStatus(client);
@@ -1627,7 +1622,7 @@ function ClientCard({ client, onSelect, onEdit, onDeactivate, onDelete, onToggle
       <div className="flex items-start justify-between gap-2 shrink-0">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
-            <MetaDot accountId={client.meta_ad_account_id} data={metaData} onRefresh={onRefreshMeta} />
+            <MetaDot accountId={client.meta_ad_account_id} lastSync={client.meta_last_sync} onRefresh={onRefreshMeta} />
             <button
               onClick={e=>{e.stopPropagation();onToggleAlerta();}}
               title={temAlerta ? "Remover alerta de pagamento" : "Marcar alerta de pagamento"}
@@ -1691,14 +1686,16 @@ function ClientCard({ client, onSelect, onEdit, onDeactivate, onDelete, onToggle
             </div>
           );
         })()}
+        {/* Dados de performance do cache (meta_*_cache) — sem chamada à API */}
+        {client.meta_ad_account_id && <MetaSummary client={client} />}
       </div>
 
       {/* Row 3 — MetaGoalBar ancorada acima do rodapé (só aparece se tiver meta) */}
       {temMeta && (() => {
-        // API (metaData) é buscada sem período → mês corrente. Tem prioridade sobre banco local.
-        // NÃO usar Math.max: banco local conta uploads CSV, API conta conversões reais.
-        const apiLeads = metaData?.total_leads ?? 0;
-        const totalResultados = apiLeads > 0 ? apiLeads : (leadsDoMes ?? 0);
+        // Usa cache do mês corrente (meta_leads_cache) gravado pelo cron.
+        // Fallback: banco local (uploads CSV). Nunca chama a API no carregamento.
+        const cacheLeads = client.meta_leads_cache ?? 0;
+        const totalResultados = cacheLeads > 0 ? cacheLeads : (leadsDoMes ?? 0);
         return (
           <div className="shrink-0 mt-1">
             <MetaGoalBar meta={client.meta_leads_mensal!} leadsDoMes={totalResultados} />
@@ -1722,9 +1719,9 @@ function ClientCard({ client, onSelect, onEdit, onDeactivate, onDelete, onToggle
   );
 }
 
-function ClientRow({ client, onSelect, onEdit, onDeactivate, onDelete, onToggleAlerta, metaData, onRefreshMeta, dragHandleProps, dragRef, draggableProps, isDragging, showDragHandle }: {
+function ClientRow({ client, onSelect, onEdit, onDeactivate, onDelete, onToggleAlerta, onRefreshMeta, dragHandleProps, dragRef, draggableProps, isDragging, showDragHandle }: {
   client:Cliente; onSelect:()=>void; onEdit:()=>void; onDeactivate:()=>void; onDelete:()=>void;
-  onToggleAlerta:()=>void; metaData: MetaInsightData; onRefreshMeta:()=>void;
+  onToggleAlerta:()=>void; onRefreshMeta:()=>void;
   dragHandleProps?: Record<string, unknown> | null;
   dragRef?: (el: HTMLElement | null) => void;
   draggableProps?: Record<string, unknown>;
@@ -1756,7 +1753,7 @@ function ClientRow({ client, onSelect, onEdit, onDeactivate, onDelete, onToggleA
       )}
       <td className="px-4 py-3">
         <div className="flex items-center gap-2">
-          <MetaDot accountId={client.meta_ad_account_id} data={metaData} onRefresh={onRefreshMeta} />
+          <MetaDot accountId={client.meta_ad_account_id} lastSync={client.meta_last_sync} onRefresh={onRefreshMeta} />
           <button onClick={e=>{e.stopPropagation();onToggleAlerta();}} title={temAlerta?"Remover alerta":"Marcar alerta de pagamento"} className="shrink-0 hover:scale-110 transition-transform">
             <CreditCard size={13} className={temAlerta ? "text-red-500" : "text-[#3a3835]"} />
           </button>
@@ -2694,6 +2691,94 @@ function RadarWrapper({
 // SKELETON LOADER
 // ═══════════════════════════════════════════════════════════════════════════════
 
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MASTER DASHBOARD — Visão Global da Diretoria (apenas admin)
+// Agrega dados de cache de todos os clientes da operação em tempo real (zero API)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function MasterDashboard({ clientes }: { clientes: Cliente[] }) {
+  const comMeta = clientes.filter(c => c.meta_ad_account_id && !isClienteInativo(c));
+  if (comMeta.length === 0) return null;
+
+  const totalSpend    = comMeta.reduce((s, c) => s + (c.meta_spend_cache ?? 0), 0);
+  const totalLeads    = comMeta.reduce((s, c) => s + (c.meta_leads_cache ?? 0), 0);
+  const totalOrc      = clientes.reduce((s, c) => s + (c.verba_meta_ads ?? 0) + (c.verba_gls ?? 0) + (c.verba_outros ?? 0), 0);
+  const cplGlobal     = totalLeads > 0 ? totalSpend / totalLeads : 0;
+  const pctGasto      = totalOrc > 0 ? Math.min((totalSpend / totalOrc) * 100, 100) : 0;
+  const syncTimes     = comMeta.map(c => c.meta_last_sync).filter(Boolean) as string[];
+  const lastSync      = syncTimes.length > 0
+    ? new Date(Math.max(...syncTimes.map(s => new Date(s).getTime())))
+    : null;
+
+  const fmt    = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const fmtInt = (v: number) => v.toLocaleString("pt-BR");
+
+  // Cor da barra de progresso
+  const barColor = pctGasto >= 95 ? "bg-red-500" : pctGasto >= 75 ? "bg-amber-500" : "bg-emerald-500";
+
+  return (
+    <div className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4 mb-6">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <p className="text-[0.6rem] font-bold uppercase tracking-[0.18em] text-violet-400 mb-0.5 flex items-center gap-1.5">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+            Dashboard Global · Diretoria
+          </p>
+          <h2 className="text-sm font-extrabold text-[#e8e2d8]">
+            Visão Consolidada da Operação
+          </h2>
+        </div>
+        {lastSync && (
+          <span className="text-[10px] text-[#4a4844] flex items-center gap-1">
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Sync: {lastSync.toLocaleString("pt-BR", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" })}
+          </span>
+        )}
+      </div>
+
+      {/* KPIs */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        {[
+          { label: "Gasto Total Meta", value: fmt(totalSpend), sub: `${comMeta.filter(c => (c.meta_spend_cache ?? 0) > 0).length} clientes ativos`, color: "text-[#e8e2d8]" },
+          { label: "Leads / Conversões", value: fmtInt(totalLeads), sub: "acumulado mês corrente", color: "text-blue-400" },
+          { label: "CPL Médio Global", value: cplGlobal > 0 ? fmt(cplGlobal) : "—", sub: "custo por lead/msg", color: "text-emerald-400" },
+          { label: "Orçamento Planejado", value: totalOrc > 0 ? fmt(totalOrc) : "—", sub: "soma verbas cadastradas", color: "text-amber-400" },
+        ].map(kpi => (
+          <div key={kpi.label} className="rounded-xl border border-[#2e2c29] bg-[#111010] p-3">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-[#4a4844] mb-1">{kpi.label}</p>
+            <p className={`text-lg font-extrabold leading-tight ${kpi.color}`}>{kpi.value}</p>
+            <p className="text-[10px] text-[#4a4844] mt-0.5">{kpi.sub}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Barra de Progresso: Gasto vs Orçamento */}
+      {totalOrc > 0 && (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[#7a7268]">Gasto Atual vs Orçamento Planejado</span>
+            <span className={`text-[10px] font-bold ${pctGasto >= 95 ? "text-red-400" : pctGasto >= 75 ? "text-amber-400" : "text-emerald-400"}`}>
+              {Math.round(pctGasto)}% utilizado
+            </span>
+          </div>
+          <div className="w-full h-2.5 rounded-full bg-[#2e2c29] overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-700 ${barColor}`}
+              style={{ width: `${pctGasto}%` }}
+            />
+          </div>
+          <div className="flex justify-between text-[10px] text-[#4a4844]">
+            <span>Gasto: {fmt(totalSpend)}</span>
+            <span>Orçamento: {fmt(totalOrc)}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SkeletonCard() {
   return (
     <div className="rounded-2xl border border-[#2e2c29] bg-[#1a1917] p-4 min-h-[178px] space-y-3 animate-pulse">
@@ -2758,6 +2843,11 @@ function normalizeCliente(raw: Record<string, unknown>): Cliente {
     verba_outros:       raw.verba_outros       != null ? Number(raw.verba_outros)       : null,
     gls_account_id:     (raw.gls_account_id    as string) ?? null,
     moeda:              (raw.moeda as 'BRL' | 'USD' | null) ?? null,
+    // Cache de métricas Meta (preenchido pelo cron de sync)
+    meta_spend_cache:   raw.meta_spend_cache != null ? Number(raw.meta_spend_cache) : null,
+    meta_leads_cache:   raw.meta_leads_cache != null ? Number(raw.meta_leads_cache) : null,
+    meta_cpl_cache:     raw.meta_cpl_cache   != null ? Number(raw.meta_cpl_cache)   : null,
+    meta_last_sync:     (raw.meta_last_sync  as string) ?? null,
   } as Cliente;
 }
 
@@ -2971,20 +3061,16 @@ export default function Home() {
     try {
       const { data, error } = await supabase
         .from("clientes")
-        .select("id, nome, operacao_id, gestor, gestor_estrategico, platforms, status, created_at, ordem, tipo_campanha, alerta_pagamento, meta_ad_account_id, meta_access_token, meta_status, meta_leads_mensal, verba_meta_ads, verba_gls, verba_outros, gls_account_id, moeda")
+        .select("id, nome, operacao_id, gestor, gestor_estrategico, platforms, status, created_at, ordem, tipo_campanha, alerta_pagamento, meta_ad_account_id, meta_access_token, meta_status, meta_leads_mensal, verba_meta_ads, verba_gls, verba_outros, gls_account_id, moeda, meta_spend_cache, meta_leads_cache, meta_cpl_cache, meta_last_sync")
         .eq("operacao_id",operacaoId)
         .order("ordem",{ascending:true,nullsFirst:false})
         .order("created_at",{ascending:false});
       if (error) throw error;
       const rows = ((data as Record<string, unknown>[]) ?? []).map(normalizeCliente);
       setClientes(rows);
-      // Dispara fetch Meta Ads para todos os clientes com conta vinculada
-      rows.forEach(c => {
-        if (c.meta_ad_account_id) {
-          fetchMetaInsights(c.id, c.meta_ad_account_id, c.meta_access_token ?? null);
-        }
-      });
-      // Busca leads do mês atual por cliente (para barra de meta)
+      // Busca leads do mês atual por cliente (para barra de meta — banco local)
+      // fetchMetaInsights removido do carregamento automático: os cards agora usam
+      // meta_*_cache (preenchido pelo cron). Chamada só ocorre ao entrar num cliente.
       fetchLeadsDoMesBatch(rows.map(r => r.id));
     } catch (err: unknown) {
       toast.error(`Erro ao carregar clientes: ${err instanceof Error ? err.message : "Erro desconhecido"}`);
@@ -3611,15 +3697,14 @@ export default function Home() {
     onDeactivate:    ()=>handleDeactivate(c.id),
     onDelete:        ()=>handleDelete(c.id),
     onToggleAlerta:  ()=>handleToggleAlerta(c.id),
-    metaData:        metaInsights[c.id] ?? null,
+    // metaData removido: cards usam cache do banco (meta_*_cache)
+    // onRefreshMeta: força sync individual via cron endpoint
     onRefreshMeta:   () => {
       if (!c.meta_ad_account_id) return;
-      // Sempre atualiza mês corrente (sem período) para pacing
-      fetchMetaInsights(c.id, c.meta_ad_account_id, c.meta_access_token ?? null);
-      // E período filtrado para Painel Visual
-      if (dateFrom && dateTo) {
-        fetchMetaInsights(c.id, c.meta_ad_account_id, c.meta_access_token ?? null, dateFrom, dateTo);
-      }
+      fetch(`/api/cron/sync-meta?cliente_id=${c.id}`, { method: "GET" })
+        .then(r => r.json())
+        .then(() => fetchClientes(operacaoAtiva?.id ?? ""))
+        .catch(console.error);
     },
     leadsDoMes:      leadsDoMesPorCliente[c.id] ?? 0,
   });
@@ -3849,6 +3934,9 @@ export default function Home() {
 
         {operacaoAtiva && !clienteAtivo && (
           <div className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {/* ── Dashboard Global da Diretoria (só admin) ── */}
+            {isAdmin && <MasterDashboard clientes={clientes} />}
+
             <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
               <div>
                 <p className="text-[0.6rem] font-bold uppercase tracking-[0.18em] text-amber-500 mb-0.5">{operacaoAtiva.nome}</p>
