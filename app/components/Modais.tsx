@@ -110,6 +110,8 @@ export interface Cliente {
   meta_leads_cache?:  number | null;
   meta_cpl_cache?:    number | null;
   meta_last_sync?:    string | null;
+  // ── Blacklist de Campanhas (excluídas do cálculo de métricas) ─────────────
+  meta_ignored_campaigns?: string[] | null;
 }
 
 export interface Lead {
@@ -560,6 +562,14 @@ export function ClienteModal({
   const metaSearchRef = useRef<HTMLInputElement>(null);
   const metaDropdownRef = useRef<HTMLDivElement>(null);
 
+  // ── Blacklist de Campanhas ──────────────────────────────────────────────────
+  const [ignoredCamps,     setIgnoredCamps]     = useState<string[]>(
+    Array.isArray(initial?.meta_ignored_campaigns) ? initial.meta_ignored_campaigns : []
+  );
+  const [campaignList,     setCampaignList]     = useState<{ id: string; name: string; status: string; objective: string }[]>([]);
+  const [campListLoading,  setCampListLoading]  = useState(false);
+  const [campListError,    setCampListError]    = useState<string | null>(null);
+
   // ── Metas, Orçamentos & IDs adicionais ─────────────────────────────────────
   const [metaLeadsMensal, setMetaLeadsMensal] = useState<string>(
     initial?.meta_leads_mensal != null ? String(initial.meta_leads_mensal) : ""
@@ -590,6 +600,26 @@ export function ClienteModal({
       toast.error(`Erro Meta Ads: ${(err as Error).message}`);
     } finally {
       setMetaLoading(false);
+    }
+  };
+
+  const handleFetchCampaigns = async () => {
+    if (!metaAccountId) { toast.error("Vincule uma conta Meta Ads antes de buscar campanhas."); return; }
+    setCampListLoading(true);
+    setCampListError(null);
+    try {
+      const params = new URLSearchParams({ action: "campaign_list", account_id: metaAccountId });
+      if (metaToken.trim()) params.set("token", metaToken.trim());
+      const res  = await fetch(`/api/meta?${params}`);
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      setCampaignList(json.campaigns ?? []);
+      if ((json.campaigns ?? []).length === 0) toast.warning("Nenhuma campanha encontrada para esta conta.");
+    } catch (err: unknown) {
+      setCampListError((err as Error).message);
+      toast.error(`Erro ao buscar campanhas: ${(err as Error).message}`);
+    } finally {
+      setCampListLoading(false);
     }
   };
 
@@ -673,6 +703,8 @@ export function ClienteModal({
       })(),
       gls_account_id:    glsAccountId.trim() || null,
       moeda,
+      // Blacklist de campanhas ignoradas nas métricas
+      meta_ignored_campaigns: ignoredCamps.length > 0 ? ignoredCamps : null,
     };
 
     setSaving(true);
@@ -1285,6 +1317,108 @@ export function ClienteModal({
               </div>
             )}
           </div>
+
+          <div className="pb-2" />
+
+          {/* ── Blacklist de Campanhas ────────────────────────────────────── */}
+          {metaAccountId && (
+            <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 space-y-3">
+              {/* Header */}
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-red-400 flex items-center gap-1.5">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                    Blacklist de Campanhas
+                  </p>
+                  <p className="text-[10px] text-[#7a7268] mt-0.5">
+                    Campanhas marcadas são excluídas do Gasto, Leads e CPL.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleFetchCampaigns}
+                  disabled={campListLoading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors disabled:opacity-50 disabled:pointer-events-none whitespace-nowrap shrink-0"
+                >
+                  {campListLoading
+                    ? <><Loader2 size={11} className="animate-spin" /> Buscando...</>
+                    : <><RefreshCw size={11} /> Buscar Campanhas</>}
+                </button>
+              </div>
+
+              {/* Aviso sobre ignoradas já salvas (sem ter buscado ainda) */}
+              {ignoredCamps.length > 0 && campaignList.length === 0 && !campListLoading && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-red-400 shrink-0"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  <p className="text-[10px] text-red-300">
+                    <span className="font-bold">{ignoredCamps.length}</span> campanha{ignoredCamps.length !== 1 ? "s" : ""} ignorada{ignoredCamps.length !== 1 ? "s" : ""} salva{ignoredCamps.length !== 1 ? "s" : ""}. Clique em "Buscar Campanhas" para gerenciar.
+                  </p>
+                </div>
+              )}
+
+              {/* Erro */}
+              {campListError && (
+                <p className="text-[10px] text-red-400 font-semibold">{campListError}</p>
+              )}
+
+              {/* Lista de campanhas */}
+              {campaignList.length > 0 && (
+                <div className="space-y-1.5 max-h-52 overflow-y-auto pr-0.5">
+                  {campaignList.map(camp => {
+                    const isIgnored = ignoredCamps.includes(camp.id);
+                    const isActive  = camp.status === "ACTIVE";
+                    return (
+                      <button
+                        key={camp.id}
+                        type="button"
+                        onClick={() => setIgnoredCamps(prev =>
+                          isIgnored ? prev.filter(id => id !== camp.id) : [...prev, camp.id]
+                        )}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-all ${
+                          isIgnored
+                            ? "border-red-500/40 bg-red-500/10"
+                            : "border-[#2e2c29] bg-[#111010] hover:border-[#3a3835]"
+                        }`}
+                      >
+                        {/* Checkbox visual */}
+                        <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
+                          isIgnored ? "bg-red-500 border-red-500" : "border-[#3a3835]"
+                        }`}>
+                          {isIgnored && (
+                            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round"><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/><line x1="19.07" y1="4.93" x2="4.93" y2="19.07"/></svg>
+                          )}
+                        </div>
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-xs font-semibold truncate ${isIgnored ? "text-red-300 line-through opacity-70" : "text-[#e8e2d8]"}`}>
+                            {camp.name}
+                          </p>
+                          <p className="text-[9px] text-[#4a4844] font-mono mt-0.5">{camp.id}</p>
+                        </div>
+                        {/* Status badge */}
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border shrink-0 ${
+                          isActive
+                            ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/25"
+                            : "text-[#7a7268] bg-[#2e2c29] border-[#3a3835]"
+                        }`}>
+                          {isActive ? "ATIVA" : "PAUSADA"}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Resumo de ignoradas */}
+              {campaignList.length > 0 && (
+                <p className={`text-[10px] font-semibold ${ignoredCamps.length > 0 ? "text-red-400" : "text-[#4a4844]"}`}>
+                  {ignoredCamps.length > 0
+                    ? `${ignoredCamps.length} campanha${ignoredCamps.length !== 1 ? "s" : ""} ignorada${ignoredCamps.length !== 1 ? "s" : ""} — excluída${ignoredCamps.length !== 1 ? "s" : ""} do cálculo de métricas.`
+                    : "Nenhuma campanha ignorada. Todas entram no cálculo."}
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="pb-2" />
             </div>
