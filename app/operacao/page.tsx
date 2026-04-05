@@ -3688,20 +3688,29 @@ function OperacaoInner() {
       const aInactive = isClienteInativo(a);
       const bInactive = isClienteInativo(b);
 
+      // Inativos/cancelados sempre no final
       if (aInactive && !bInactive) return 1;
       if (!aInactive && bInactive) return -1;
-      
-      if (sortMode==="alfabetica") {
-          return (a.nome || "").localeCompare(b.nome || "", "pt-BR", {sensitivity:"base"});
+
+      if (sortMode === "alfabetica") {
+        return (a.nome || "").localeCompare(b.nome || "", "pt-BR", {sensitivity:"base"});
       }
-      
-      const aO=a.ordem??Infinity, bO=b.ordem??Infinity;
-      if (aO!==bO) return aO-bO;
-      
-      const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
-      const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
-      
-      return (isNaN(aTime) ? 0 : aTime) - (isNaN(bTime) ? 0 : bTime);
+
+      // Modo personalizado:
+      // 1. Sem ordem definida (recém-criados) → topo, por created_at DESC
+      // 2. Com ordem numérica → crescente
+      const aHasOrdem = a.ordem != null;
+      const bHasOrdem = b.ordem != null;
+
+      if (!aHasOrdem && !bHasOrdem) {
+        const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return bTime - aTime; // mais recente primeiro
+      }
+      if (!aHasOrdem &&  bHasOrdem) return -1; // novo sobe
+      if ( aHasOrdem && !bHasOrdem) return  1; // novo sobe
+
+      return (a.ordem as number) - (b.ordem as number);
     });
 
   const stats = {
@@ -3804,9 +3813,6 @@ function OperacaoInner() {
           <div className="flex items-center gap-1.5 shrink-0">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/LOGO-PRINCIPAL.svg" alt="TS HUB" className="h-8 w-auto"/>
-            <div className="hidden sm:block ml-1">
-              <p className="font-bold text-[0.95rem] leading-none tracking-tight">TS <span className="text-amber-500">HUB</span></p>
-            </div>
             {/* Grid → volta ao Hub */}
             <button
               onClick={() => router.push("/hub")}
