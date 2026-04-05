@@ -1516,6 +1516,8 @@ export interface SettingsModalProps {
   operacoes?:          OperacaoSimples[];
   onDeleteOperacao?:   (id: string) => Promise<void>;
   onRefreshOperacoes?: () => Promise<void>;
+  // Guard: somente admin logado pode alterar acessos
+  isCallerAdmin?: boolean;
 }
 
 export function SettingsModal({
@@ -1524,6 +1526,7 @@ export function SettingsModal({
   onRenameEstrat, onDeleteEstrat, onAddEstrat,
   onRenameTrafego, onDeleteTrafego, onAddTrafego,
   operacoes = [], onDeleteOperacao, onRefreshOperacoes,
+  isCallerAdmin = false,
 }: SettingsModalProps) {
   type Tab = "estrategico" | "trafego" | "unidades" | "acessos";
   const [tab, setTab]         = useState<Tab>("estrategico");
@@ -1565,17 +1568,30 @@ export function SettingsModal({
   // ── Toggle de operação para um gestor ───────────────────────────────────────
   const handleToggleOpAcesso = async (gestor: GestorAcesso, opId: string) => {
     if (gestor.role === "admin") return;
+    // Somente admin logado pode alterar acessos
+    if (!isCallerAdmin) {
+      toast.error("Sem permissão para alterar acessos.");
+      return;
+    }
     const current = gestor.operacao_id ?? [];
     const next = current.includes(opId)
       ? current.filter(id => id !== opId)
       : [...current, opId];
     setAcessoBusy(gestor.id);
     try {
-      const { error } = await supabase
+      // Usa createBrowserClient para carregar a sessão autenticada do cookie,
+      // garantindo que as políticas RLS do Supabase aceitem o UPDATE.
+      const { createBrowserClient } = await import("@supabase/ssr");
+      const sbAuth = createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      );
+      const { error } = await sbAuth
         .from("gestores")
         .update({ operacao_id: next.length > 0 ? next : null })
         .eq("id", gestor.id);
       if (error) throw error;
+      // Sincroniza estado local sem precisar de F5
       setGestoresAcesso(prev =>
         prev.map(g => g.id === gestor.id
           ? { ...g, operacao_id: next.length > 0 ? next : null }
