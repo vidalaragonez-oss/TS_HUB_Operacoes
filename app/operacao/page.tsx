@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Papa from "papaparse";
 import { toast } from "sonner";
@@ -2868,7 +2868,7 @@ function normalizeCliente(raw: Record<string, unknown>): Cliente {
 // PAGE
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export default function Home() {
+function OperacaoContent() {
   const router       = useRouter();
   const searchParams = useSearchParams();
 
@@ -4641,5 +4641,17 @@ export default function Home() {
         </button>
       )}
     </div>
+  );
+}
+
+export default function OperacaoPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#111010] flex items-center justify-center">
+        <Loader2 size={32} className="animate-spin text-amber-500" />
+      </div>
+    }>
+      <OperacaoContent />
+    </Suspense>
   );
 }
