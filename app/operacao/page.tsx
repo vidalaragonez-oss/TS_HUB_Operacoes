@@ -3157,9 +3157,10 @@ function OperacaoContent() {
     const _hoje = new Date();
     const _inicioMes = new Date(_hoje.getFullYear(), _hoje.getMonth(), 1);
     setDateFrom(_fmtL(_inicioMes)); setDateTo(_fmtL(_hoje)); setPeriodPreset("this_month"); setCurrentPage(1);
+    // Sempre carrega leads do banco primeiro (inclui manuais, CSV, WhatsApp, etc.)
+    fetchLeads(cliente.id);
+    // Se tem Meta configurado, sincroniza em seguida — o sync recarrega o estado do banco ao terminar
     if (cliente.meta_ad_account_id && operacaoAtiva) {
-      // Quando há Meta configurado: o sync já faz fetchLeads internamente após upsert.
-      // Não chamamos fetchLeads separado para evitar race condition (fetch rápido sobrescreve sync).
       syncMetaLeads(
         cliente.id,
         cliente.meta_ad_account_id,
@@ -3167,9 +3168,6 @@ function OperacaoContent() {
         operacaoAtiva.id,
         operacaoAtiva.nome,
       );
-    } else {
-      // Sem Meta: carrega direto do banco
-      fetchLeads(cliente.id);
     }
     window.scrollTo({ top: 0, behavior: "smooth" }); // Sobe suavemente
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3489,11 +3487,7 @@ function OperacaoContent() {
       const res  = await fetch(`/api/meta?${params}`);
       const json = await res.json();
       if (json.error || !json.leads?.length) {
-        // Mesmo sem novos leads da API, recarrega o estado do banco para garantir fonte única
-        const { data: currentLeads } = await supabase
-          .from("leads").select("*").eq("cliente", clienteId)
-          .order("created_at", { ascending: false });
-        if (currentLeads) setAllLeadsForDashboard(currentLeads as Lead[]);
+        // API sem leads — não sobrescreve o estado (fetchLeads já carregou os leads do banco)
         return;
       }
 
@@ -3510,11 +3504,7 @@ function OperacaoContent() {
       });
 
       if (!leadsParaSync.length) {
-        // Recarrega estado do banco mesmo sem novos
-        const { data: currentLeads } = await supabase
-          .from("leads").select("*").eq("cliente", clienteId)
-          .order("created_at", { ascending: false });
-        if (currentLeads) setAllLeadsForDashboard(currentLeads as Lead[]);
+        // Nada novo para sincronizar — não sobrescreve o estado existente
         return;
       }
 
