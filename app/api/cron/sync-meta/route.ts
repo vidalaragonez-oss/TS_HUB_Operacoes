@@ -98,6 +98,7 @@ function extractLeads(
 async function fetchInsightsMesCorrente(
   accountId: string,
   token: string,
+  ignoredCampaigns: string[] = [],
 ): Promise<{ spend: number; totalLeads: number; cpl: number } | null> {
   try {
     // Período: 1º do mês corrente até hoje
@@ -133,6 +134,8 @@ async function fetchInsightsMesCorrente(
 
     for (const row of (insightData.data ?? []) as Record<string, unknown>[]) {
       const campId    = (row.campaign_id as string) ?? "";
+      // Blacklist: ignora campanhas selecionadas pelo gestor
+      if (ignoredCampaigns.includes(campId)) continue;
       const campSpend = parseFloat((row.spend as string) ?? "0");
       const objective = objectiveMap.get(campId) ?? "UNKNOWN";
       const actions   = (row.actions as ActionEntry[]) ?? [];
@@ -157,6 +160,7 @@ interface ClienteRow {
   nome: string;
   meta_ad_account_id: string;
   meta_access_token: string | null;
+  meta_ignored_campaigns: string[] | null;
 }
 
 // ─── CRON ENDPOINT ────────────────────────────────────────────────────────────
@@ -193,7 +197,7 @@ export async function GET(req: NextRequest) {
     // ── Busca clientes a sincronizar ─────────────────────────────────────────
     let query = supabaseAdmin
       .from("clientes")
-      .select("id, nome, meta_ad_account_id, meta_access_token")
+      .select("id, nome, meta_ad_account_id, meta_access_token, meta_ignored_campaigns")
       .not("meta_ad_account_id", "is", null)
       .neq("status", "INATIVO")
       .neq("status", "CANCELAMENTO");
@@ -234,6 +238,7 @@ export async function GET(req: NextRequest) {
           const insights = await fetchInsightsMesCorrente(
             cliente.meta_ad_account_id,
             token,
+            cliente.meta_ignored_campaigns ?? [],
           );
 
           if (!insights) {
