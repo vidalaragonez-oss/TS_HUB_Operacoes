@@ -163,17 +163,26 @@ async function discoverPageIds(accountId: string, token: string): Promise<Set<st
   if (pageIds.size > 0) return pageIds;
 
   // Estratégia B: ads com creative.object_story_spec (page_id no criativo)
+  // Também extrai lead_gen_form_id para uso direto se necessário
   try {
-    const adsData = await metaFetch(`/${accountId}/ads`, {
-      access_token: token,
-      fields: "creative{object_story_spec}",
-      limit: "50",
-    });
-    for (const ad of (adsData.data ?? []) as { creative?: { object_story_spec?: { page_id?: string } } }[]) {
-      const pid = ad.creative?.object_story_spec?.page_id;
-      if (pid) pageIds.add(pid);
+    let afterB: string | null = null;
+    for (let i = 0; i < 5; i++) {
+      const paramsB: Record<string, string> = {
+        access_token: token,
+        fields: "creative{object_story_spec}",
+        limit: "100",
+      };
+      if (afterB) paramsB.after = afterB;
+      const adsData = await metaFetch(`/${accountId}/ads`, paramsB);
+      for (const ad of (adsData.data ?? []) as { creative?: { object_story_spec?: { page_id?: string } } }[]) {
+        const pid = ad.creative?.object_story_spec?.page_id;
+        if (pid) pageIds.add(pid);
+      }
+      const nextAfterB = adsData.paging?.cursors?.after;
+      if (!nextAfterB || !adsData.paging?.next) break;
+      afterB = nextAfterB;
     }
-  } catch { /* continua */ }
+  } catch (e) { console.error(`[discoverPageIds] estratégia B: ${e instanceof Error ? e.message : String(e)}`); }
 
   if (pageIds.size > 0) return pageIds;
 
@@ -285,8 +294,49 @@ export async function GET(req: NextRequest) {
       const accountPageIds = await discoverPageIds(accountId, token);
 
       if (accountPageIds.size === 0) {
-        console.warn(`[leads] Nenhum page_id encontrado para ${accountId}`);
-        return NextResponse.json({ leads: [], pages_scanned: 0, warning: "Nenhuma página vinculada encontrada para esta conta de anúncios." });
+        // Fallback: extrai form_ids diretamente dos criativos dos ads e busca leads por form
+        // Funciona para contas onde page_id não aparece em campaigns nem em /me/accounts
+        console.warn(`[leads] Nenhum page_id para ${accountId} — extraindo form_ids dos ads`);
+        try {
+          const formIds = new Map<string, string>(); // id -> name
+          let afterAds: string | null = null;
+          for (let i = 0; i < 10; i++) {
+            const pAds: Record<string, string> = {
+              access_token: token,
+              fields: "creative{object_story_spec}",
+              limit: "100",
+            };
+            if (afterAds) pAds.after = afterAds;
+            const adsData = await metaFetch(`/${accountId}/ads`, pAds);
+            for (const ad of (adsData.data ?? []) as { creative?: { object_story_spec?: { page_id?: string; link_data?: { call_to_action?: { value?: { lead_gen_form_id?: string } } }; video_data?: { call_to_action?: { value?: { lead_gen_form_id?: string } } } } } }[]) {
+              const spec = ad.creative?.object_story_spec;
+              const fid = spec?.link_data?.call_to_action?.value?.lead_gen_form_id
+                       ?? spec?.video_data?.call_to_action?.value?.lead_gen_form_id;
+              if (fid && !formIds.has(fid)) formIds.set(fid, fid);
+            }
+            const nextAds = adsData.paging?.cursors?.after;
+            if (!nextAds || !adsData.paging?.next) break;
+            afterAds = nextAds;
+          }
+          // Busca leads de cada formulário diretamente
+          for (const [fid] of formIds) {
+            try { await fetchLeadsForForm(fid, fid, token); } catch { /* segue */ }
+          }
+          // Se ainda não achou, tenta /account/leadgen_forms como último recurso
+          if (leads.length === 0) {
+            const formsData = await metaFetch(`/${accountId}/leadgen_forms`, {
+              access_token: token, fields: "id,name", limit: "100",
+            });
+            for (const form of (formsData.data ?? []) as { id: string; name: string }[]) {
+              if (!formIds.has(form.id)) {
+                try { await fetchLeadsForForm(form.id, form.name, token); } catch { /* segue */ }
+              }
+            }
+          }
+        } catch (e) {
+          console.error(`[leads] fallback form_ids falhou: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        return NextResponse.json({ leads, pages_scanned: 0 });
       }
 
       // PASSO 2: Mapeia page_id → page_access_token (necessário para leadgen_forms)
