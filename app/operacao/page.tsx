@@ -4568,6 +4568,7 @@ export default function Home() {
           operacoes={operacoes as OperacaoSimples[]}
           onDeleteOperacao={handleDeleteOperacao}
           onRefreshOperacoes={handleRefreshOperacoes}
+          isCallerAdmin={isAdmin}
         />
       )}
       {clienteModal&&operacaoAtiva&&(
