@@ -3481,43 +3481,39 @@ function OperacaoContent() {
       if (token) params.set("token", token);
       const res  = await fetch(`/api/meta?${params}`);
       const json = await res.json();
-      if (json.error || !json.leads?.length) return;
+      if (json.error || !json.leads?.length) {
+        // Mesmo sem novos leads da API, recarrega o estado do banco para garantir fonte única
+        const { data: currentLeads } = await supabase
+          .from("leads").select("*").eq("cliente", clienteId)
+          .order("created_at", { ascending: false });
+        if (currentLeads) setAllLeadsForDashboard(currentLeads as Lead[]);
+        return;
+      }
 
-      // Busca leads existentes deste cliente para deduplicar
-      const { data: existing } = await supabase
-        .from("leads")
-        .select("meta_lead_id, email, nome")
-        .eq("cliente", clienteId);
-
-      const existingMetaIds = new Set(
-        (existing ?? []).map((r: { meta_lead_id: string }) => r.meta_lead_id).filter(Boolean)
-      );
-      // Chave secundária: email normalizado (evita duplicar mesmo lead sem meta_lead_id)
-      const existingEmails = new Set(
-        (existing ?? []).map((r: { email: string }) => (r.email ?? "").toLowerCase().trim()).filter(Boolean)
-      );
-
-      // Deduplicação tripla:
-      // 1. meta_lead_id já no banco
-      // 2. email já no banco
-      // 3. duplicatas dentro do próprio array retornado pela API
+      // Deduplicação dentro do próprio array retornado pela API (evita upsert duplicado no batch)
       const seenInBatch = new Set<string>();
-      const novos = (json.leads as {
+      const leadsParaSync = (json.leads as {
         meta_lead_id: string; nome: string; email: string;
         telefone: string; created_time: string;
       }[]).filter(l => {
-        if (existingMetaIds.has(l.meta_lead_id)) return false;
-        const emailKey = (l.email ?? "").toLowerCase().trim();
-        if (emailKey && existingEmails.has(emailKey)) return false;
-        const batchKey = l.meta_lead_id || emailKey;
-        if (batchKey && seenInBatch.has(batchKey)) return false;
-        if (batchKey) seenInBatch.add(batchKey);
+        if (!l.meta_lead_id) return false; // sem meta_lead_id não podemos fazer upsert seguro
+        if (seenInBatch.has(l.meta_lead_id)) return false;
+        seenInBatch.add(l.meta_lead_id);
         return true;
       });
 
-      if (!novos.length) return;
+      if (!leadsParaSync.length) {
+        // Recarrega estado do banco mesmo sem novos
+        const { data: currentLeads } = await supabase
+          .from("leads").select("*").eq("cliente", clienteId)
+          .order("created_at", { ascending: false });
+        if (currentLeads) setAllLeadsForDashboard(currentLeads as Lead[]);
+        return;
+      }
 
-      const rows = novos.map(l => ({
+      // UPSERT usando meta_lead_id como chave única — garante que todo lead da API entra no banco
+      // e que re-sync não duplica registros existentes
+      const rows = leadsParaSync.map(l => ({
         meta_lead_id: l.meta_lead_id,
         nome:         l.nome || null,
         email:        l.email || null,
@@ -3529,12 +3525,36 @@ function OperacaoContent() {
         operacao_id:  operacaoId,
       }));
 
-      const { data: inserted, error } = await supabase.from("leads").insert(rows).select();
-      if (error) throw error;
-      if (inserted?.length) {
-        setAllLeadsForDashboard(prev => [...((inserted as Lead[]) ?? []), ...prev]);
-        toast.success(`${inserted.length} lead(s) Meta sincronizado(s).`);
-      }
+      const { error: upsertError } = await supabase
+        .from("leads")
+        .upsert(rows, { onConflict: "meta_lead_id", ignoreDuplicates: false });
+
+      if (upsertError) throw upsertError;
+
+      // FONTE ÚNICA: após upsert, recarrega TODOS os leads do banco para este cliente
+      // Isso garante que allLeadsForDashboard, leadsDoMes e totalLeadsCount sejam precisos
+      const { data: allLeadsAtualizados, error: fetchError } = await supabase
+        .from("leads").select("*").eq("cliente", clienteId)
+        .order("created_at", { ascending: false });
+
+      if (fetchError) throw fetchError;
+
+      const leadsAtualizados = (allLeadsAtualizados ?? []) as Lead[];
+      setAllLeadsForDashboard(leadsAtualizados);
+
+      // Atualiza também o contador da barra de meta nos cards (leadsDoMesPorCliente)
+      const now = new Date();
+      const mesInicio = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+      const mesFim    = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+      const leadsDoMesCount = leadsAtualizados.filter(l => {
+        const plat = (l.plataforma ?? "").toLowerCase();
+        if (plat.includes("meta") && !l.meta_lead_id) return false;
+        return l.data >= mesInicio && l.data <= mesFim;
+      }).length;
+      setLeadsDoMesPorCliente(prev => ({ ...prev, [clienteId]: leadsDoMesCount }));
+
+      const novosCount = leadsParaSync.length;
+      toast.success(`${novosCount} lead(s) Meta sincronizado(s).`);
     } catch (err: unknown) {
       console.error("[syncMetaLeads] Erro:", err instanceof Error ? err.message : String(err));
     } finally {
