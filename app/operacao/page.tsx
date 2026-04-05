@@ -3488,6 +3488,8 @@ function OperacaoContent() {
       if (token) params.set("token", token);
       const res  = await fetch(`/api/meta?${params}`);
       const json = await res.json();
+      // DEBUG temporário — remove após resolver
+      toast(`API Meta: leads=${json.leads?.length ?? 0} erro=${json.error ?? "nenhum"}`, { duration: 8000 });
       if (json.error || !json.leads?.length) {
         // Mesmo sem novos leads da API, recarrega o estado do banco para garantir fonte única
         const { data: currentLeads } = await supabase
