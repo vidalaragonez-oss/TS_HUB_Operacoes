@@ -3021,6 +3021,8 @@ function OperacaoInner() {
     if (!perfil) return;
     fetchGestores();
     fetchOperacoes(perfil);
+    // Se a URL tiver ?nova=1, abre o modal de criação de operação imediatamente
+    if (searchParams.get("nova") === "1") setNovaOpOpen(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [perfil]);
 
@@ -3823,7 +3825,7 @@ function OperacaoInner() {
           </div>
 
           {/* ── Centro: Nome da operação + indicador de pendências ── */}
-          <div className="flex-1 flex items-center justify-center gap-2 px-2 min-w-0">
+          <div className="flex-1 flex items-center justify-center gap-4 mx-4 min-w-0">
             {operacaoAtiva && !clienteAtivo && (
               <span className="text-xs font-bold text-[#4a4844] uppercase tracking-widest truncate">
                 {operacaoAtiva.nome}
