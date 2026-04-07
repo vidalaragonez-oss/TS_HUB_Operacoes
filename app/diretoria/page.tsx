@@ -152,6 +152,7 @@ export default function DiretoriaPage() {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [sort, setSort]               = useState<{ key: string; asc: boolean }>({ key: "saude", asc: true });
   const [mostrarVerdes, setMostrarVerdes] = useState(false);
+  const [mostrarUti, setMostrarUti]       = useState(true); // UTI começa expandida
   const [showScrollTop, setShowScrollTop] = useState(false);
 
   // Scroll-to-top listener
@@ -235,7 +236,6 @@ export default function DiretoriaPage() {
       const enriquecidos: ClienteEnriquecido[] = clientes.map(c => {
         const apiLeads   = c.meta_leads_cache ?? 0;
         const bancoLeads = leadsBanco[c.id]   ?? 0;
-        // Usa o maior (API tem prioridade se disponível, senão banco local)
         const leadsTotais = apiLeads > 0 ? apiLeads : bancoLeads;
 
         const gastoMeta    = c.meta_spend_cache              ?? 0;
@@ -338,7 +338,8 @@ export default function DiretoriaPage() {
 
   // ─── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen overflow-y-auto bg-[#0a0a0a] text-[#e8e2d8] flex flex-col pb-20">
+    // ↓ Removido overflow-y-auto — o scroll deve ocorrer no documento, não aqui
+    <div className="min-h-screen bg-[#0a0a0a] text-[#e8e2d8] flex flex-col pb-20">
 
       {/* ── Header ── */}
       <header className="shrink-0 border-b border-[#2e2c29] bg-[#111010] px-4 md:px-8 py-3 flex items-center justify-between gap-4 sticky top-0 z-40">
@@ -499,18 +500,26 @@ export default function DiretoriaPage() {
               </div>
             </div>
 
-            {/* ── Tabela UTI ── */}
+            {/* ── Tabela UTI (colapsável) ── */}
             {uti.length > 0 && (
               <div className="rounded-2xl border border-red-500/20 bg-[#1a1917] overflow-hidden">
-                <div className="flex items-center justify-between px-5 py-3 border-b border-[#2e2c29] bg-[#111010]">
+                <button
+                  onClick={() => setMostrarUti(v => !v)}
+                  className="w-full flex items-center justify-between px-5 py-3 border-b border-[#2e2c29] bg-[#111010] hover:bg-[#161514] transition-colors"
+                >
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
                     <h2 className="text-xs font-bold text-[#e8e2d8] uppercase tracking-widest">UTI da Operação</h2>
                     <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/25 font-bold">{uti.length}</span>
                   </div>
-                  <p className="text-[10px] text-[#4a4844] hidden sm:block">Ordenado por urgência — Vermelho → Amarelo</p>
-                </div>
-                <TabelaClientes clientes={uti} sort={sort} onSort={toggleSort} />
+                  <div className="flex items-center gap-1.5 text-[#7a7268] text-[10px] font-semibold">
+                    <span className="hidden sm:inline text-[#4a4844]">
+                      {mostrarUti ? "Recolher" : "Expandir · Vermelho → Amarelo"}
+                    </span>
+                    {mostrarUti ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                  </div>
+                </button>
+                {mostrarUti && <TabelaClientes clientes={uti} sort={sort} onSort={toggleSort} />}
               </div>
             )}
 
